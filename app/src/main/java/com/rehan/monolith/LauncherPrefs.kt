@@ -1,6 +1,7 @@
 package com.rehan.monolith
 
 import android.content.Context
+import android.util.Base64
 
 data class HomeConfig(
     val clockStyle: String = "STACKED",
@@ -32,6 +33,12 @@ data class CustomWidgetSpec(
 
 class LauncherPrefs(context: Context) {
     private val prefs = context.getSharedPreferences("monolith_prefs", Context.MODE_PRIVATE)
+
+    init {
+        prefs.getString("parent_pin", null)?.let { legacy ->
+            if (!setParentPin(legacy)) prefs.edit().remove("parent_pin").commit()
+        }
+    }
 
     fun getPinnedPackages(): List<String> {
         val raw = prefs.getString("pinned_packages", "") ?: ""
@@ -119,12 +126,30 @@ class LauncherPrefs(context: Context) {
         prefs.edit().putBoolean("kids_mode_active", active).apply()
     }
 
-    fun getParentPin(): String = prefs.getString("parent_pin", "1234") ?: "1234"
+    fun hasParentPin(): Boolean = prefs.getString("parent_pin_hash", null) != null
 
-    fun setParentPin(pin: String) {
-        if (pin.length >= 4) {
-            prefs.edit().putString("parent_pin", pin).apply()
-        }
+    fun setParentPin(pin: String): Boolean {
+        if (pin.length < 4 || !pin.all { it.isDigit() }) return false
+        val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        prefs.edit()
+            .putString("parent_pin_salt", Base64.encodeToString(salt, Base64.NO_WRAP))
+            .putString("parent_pin_hash", hashPin(pin, salt))
+            .remove("parent_pin")
+            .commit()
+        return true
+    }
+
+    fun verifyParentPin(pin: String): Boolean {
+        val hash = prefs.getString("parent_pin_hash", null) ?: return false
+        val salt = prefs.getString("parent_pin_salt", null) ?: return false
+        val candidate = hashPin(pin, Base64.decode(salt, Base64.NO_WRAP))
+        return java.security.MessageDigest.isEqual(hash.toByteArray(), candidate.toByteArray())
+    }
+
+    private fun hashPin(pin: String, salt: ByteArray): String {
+        val spec = javax.crypto.spec.PBEKeySpec(pin.toCharArray(), salt, 120_000, 256)
+        val key = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        return Base64.encodeToString(key, Base64.NO_WRAP)
     }
 
     fun getQuickNote(): String = prefs.getString("quick_note", "") ?: ""

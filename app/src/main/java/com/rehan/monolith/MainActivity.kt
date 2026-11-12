@@ -338,7 +338,7 @@ fun MonolithLauncher(
     var focusDistractions by remember { mutableStateOf(prefs.getFocusDistractions()) }
     var kidsApps by remember { mutableStateOf(prefs.getKidsApps()) }
     var kidsModeActive by remember { mutableStateOf(prefs.isKidsModeActive()) }
-    var parentPin by remember { mutableStateOf(prefs.getParentPin()) }
+    var hasParentPin by remember { mutableStateOf(prefs.hasParentPin()) }
     var quickNote by remember { mutableStateOf(prefs.getQuickNote()) }
     var showNoteDialog by remember { mutableStateOf(false) }
     var homeConfig by remember { mutableStateOf(prefs.getHomeConfig()) }
@@ -512,6 +512,10 @@ fun MonolithLauncher(
     }
 
     fun enterKidsMode() {
+        if (!prefs.hasParentPin()) {
+            toast("Set a Parent PIN first")
+            return
+        }
         if (kidsApps.isEmpty()) {
             enterKidsAfterPick = true
             showKidsAppsPicker = true
@@ -571,7 +575,7 @@ fun MonolithLauncher(
         }
         KidsModeLauncherScreen(
             kidsApps = allowedKidsApps,
-            parentPin = parentPin,
+            verifyPin = { prefs.verifyParentPin(it) },
             onLaunchApp = { launchApp(it) },
             onExitKidsMode = { exitKidsMode() },
             onWrongPin = { toast("Wrong Parent PIN") }
@@ -715,7 +719,7 @@ fun MonolithLauncher(
                     status = shizukuStatus,
                     apps = apps,
                     kidsAppCount = kidsApps.size,
-                    parentPin = parentPin,
+                    hasParentPin = hasParentPin,
                     grayscaleOn = grayscaleOn,
                     stayAwakeOn = stayAwakeOn,
                     installersLocked = installersLocked,
@@ -778,9 +782,12 @@ fun MonolithLauncher(
                     focusActive = focusActive,
                     onToggleFocus = { toggleFocusMode() },
                     onSaveParentPin = { newPin ->
-                        prefs.setParentPin(newPin)
-                        parentPin = prefs.getParentPin()
-                        toast("Parent PIN updated")
+                        if (prefs.setParentPin(newPin)) {
+                            hasParentPin = true
+                            toast("Parent PIN saved")
+                        } else {
+                            toast("PIN must be at least 4 digits")
+                        }
                     },
                     onSetAnimScale = { scale ->
                         scope.launch {
@@ -2308,7 +2315,7 @@ fun ShizukuShelfPage(
     status: ShizukuStatus,
     apps: List<AppEntry>,
     kidsAppCount: Int,
-    parentPin: String,
+    hasParentPin: Boolean,
     grayscaleOn: Boolean,
     stayAwakeOn: Boolean,
     installersLocked: Boolean,
@@ -2342,6 +2349,7 @@ fun ShizukuShelfPage(
 ) {
     val scope = rememberCoroutineScope()
     var showPinWizard by remember { mutableStateOf(false) }
+    var enterKidsAfterPin by remember { mutableStateOf(false) }
 
     var freezerExpanded by remember { mutableStateOf(false) }
     var freezerQuery by remember { mutableStateOf("") }
@@ -2439,7 +2447,14 @@ fun ShizukuShelfPage(
                 Text("KIDS SPACE ($kidsAppCount APPS)", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextDim)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = onEnterKidsMode,
+                        onClick = {
+                            if (hasParentPin) {
+                                onEnterKidsMode()
+                            } else {
+                                enterKidsAfterPin = true
+                                showPinWizard = true
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -2473,8 +2488,15 @@ fun ShizukuShelfPage(
                 onPinConfirmed = { newPin ->
                     onSaveParentPin(newPin)
                     showPinWizard = false
+                    if (enterKidsAfterPin) {
+                        enterKidsAfterPin = false
+                        onEnterKidsMode()
+                    }
                 },
-                onDismiss = { showPinWizard = false }
+                onDismiss = {
+                    showPinWizard = false
+                    enterKidsAfterPin = false
+                }
             )
         }
 
@@ -2798,7 +2820,7 @@ fun ShizukuShelfPage(
 @Composable
 fun KidsModeLauncherScreen(
     kidsApps: List<AppEntry>,
-    parentPin: String,
+    verifyPin: (String) -> Boolean,
     onLaunchApp: (String) -> Unit,
     onExitKidsMode: () -> Unit,
     onWrongPin: () -> Unit
@@ -2893,10 +2915,10 @@ fun KidsModeLauncherScreen(
         PinKeypadDialog(
             title = "Enter Parent PIN",
             subtitle = "4-digit PIN to exit Kids Space",
-            expectedLength = parentPin.length.coerceAtLeast(4),
+            expectedLength = 4,
             errorMessage = null,
             onPinEntered = { code ->
-                if (code == parentPin) {
+                if (verifyPin(code)) {
                     showPinDialog = false
                     onExitKidsMode()
                 } else {
