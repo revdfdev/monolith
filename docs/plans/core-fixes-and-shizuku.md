@@ -17,7 +17,8 @@ Out of scope (later plans): Curbox reel blocking, keyword/browser blocking, the 
 ## Phase 1: Build baseline
 - [x] Gradle wrapper 8.14 (AGP 8.7.3), JDK 21 pinned via gradle-daemon-jvm.properties, JUnit + Robolectric — proof: `env -u JAVA_HOME ./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL
 
-- [ ] Manifest corrections, based on the patterns in the four reference manifests:
+- [x] Manifest (now): allowBackup=false, enableOnBackInvokedCallback, stateHidden|adjustResize, ACCESS_HIDDEN_PROFILES, EXPAND_STATUS_BAR — proof: `./gradlew assembleDebug testDebugUnitTest` → BUILD SUCCESSFUL; `aapt2 dump xmltree` shows all five. Remaining items below move with their feature: QUERY_ALL_PACKAGES removal → Phase 3; InstallActivity + REQUEST_INSTALL_PACKAGES → Phase 6; PinItemActivity → Phase 10; POST_NOTIFICATIONS/BOOT/NOTIFICATION_POLICY → Phase 5.
+- [ ] (deferred items) Manifest corrections, based on the patterns in the four reference manifests:
   - Remove `QUERY_ALL_PACKAGES`; LauncherApps doesn't need it, and neither Olauncher nor Kvaesitso declares it.
   - Move the APK VIEW/INSTALL_PACKAGE filter from the HOME activity to a separate `InstallActivity`, and add `REQUEST_INSTALL_PACKAGES`.
   - Add `PinItemActivity` for CONFIRM_PIN_SHORTCUT/APPWIDGET.
