@@ -49,18 +49,21 @@ class ParentPinTest {
 
     @Test
     fun `GIVEN PIN set WHEN reading storage THEN the PIN is not stored in plain text`() {
-        LauncherPrefs(context).setParentPin("4821")
-        val stored = rawPrefs().all.values.map { it.toString() }
-        assertFalse(stored.any { it.contains("4821") })
+        val prefs = LauncherPrefs(context)
+        prefs.setParentPin("4821")
+        prefs.flushForTest()
+        val stored = java.io.File(context.filesDir, "datastore/monolith_settings.json").readText()
+        assertTrue(stored.contains("parentPinHash"))
+        assertFalse(stored.contains("4821"))
     }
 
     @Test
     fun `GIVEN same PIN set twice WHEN reading hash THEN salt makes hashes differ`() {
         val prefs = LauncherPrefs(context)
         prefs.setParentPin("4821")
-        val first = rawPrefs().getString("parent_pin_hash", null)
+        val first = prefs.settings.value.parentPinHash
         prefs.setParentPin("4821")
-        val second = rawPrefs().getString("parent_pin_hash", null)
+        val second = prefs.settings.value.parentPinHash
         assertNotEquals(first, second)
     }
 
