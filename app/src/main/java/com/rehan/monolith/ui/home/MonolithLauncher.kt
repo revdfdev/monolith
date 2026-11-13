@@ -175,11 +175,12 @@ fun MonolithLauncher(
     var showSystemWidgetPicker by remember { mutableStateOf(false) }
 
     val focusActive = settings.focusModeActive
-    var grayscaleOn by remember { mutableStateOf(false) }
-    var stayAwakeOn by remember { mutableStateOf(false) }
-    var lockscreenNotifMode by remember { mutableStateOf("QUIET") }
-    var ambientDisplayOn by remember { mutableStateOf(prefs.isAmbientDisplayEnabled()) }
-    var installersLocked by remember { mutableStateOf(false) }
+    val tweaks by viewModel.tweaks.collectAsState()
+    val grayscaleOn = tweaks.grayscale
+    val stayAwakeOn = tweaks.stayAwake
+    val lockscreenNotifMode = tweaks.lockscreenMode
+    val ambientDisplayOn = tweaks.ambientDisplay
+    val installersLocked = tweaks.installersLocked
     val showFrozen = settings.showFrozenInDrawer
     val autoLaunchSingle = settings.autoLaunchSingleMatch
     var selectedAppForSheet by remember { mutableStateOf<AppEntry?>(null) }
@@ -206,12 +207,7 @@ fun MonolithLauncher(
         scope.launch {
             appRepository.refresh()
             usageMinutesMap = readTodayAppUsageMinutes(context)
-            if (shizukuStatus.isReady) {
-                grayscaleOn = shizuku.isGrayscaleEnabled()
-                stayAwakeOn = shizuku.getStayAwake()
-                ambientDisplayOn = shizuku.isDozeAlwaysOn()
-                lockscreenNotifMode = shizuku.getLockscreenNotificationMode()
-            }
+            viewModel.readTweaks()
         }
     }
 
@@ -259,6 +255,10 @@ fun MonolithLauncher(
         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { toast(it) }
+    }
+
     fun forceLaunchApp(pkg: String) {
         val intent = context.packageManager.getLaunchIntentForPackage(pkg)
         if (intent != null) {
@@ -294,50 +294,19 @@ fun MonolithLauncher(
             showKidsAppsPicker = true
             return
         }
-        scope.launch {
-            if (shizukuStatus.isReady) {
-                shizuku.setInstallersLocked(true)
-            }
-            prefs.setKidsModeActive(true)
-            drawerOpen = false
-        }
+        if (shizukuStatus.isReady) viewModel.setInstallersLocked(true, success = null)
+        prefs.setKidsModeActive(true)
+        drawerOpen = false
     }
 
     fun exitKidsMode() {
-        scope.launch {
-            if (shizukuStatus.isReady) {
-                shizuku.setInstallersLocked(false)
-            }
-            prefs.setKidsModeActive(false)
-            reloadAll()
-            toast("Kids Mode OFF")
-        }
+        if (shizukuStatus.isReady) viewModel.setInstallersLocked(false, success = null)
+        prefs.setKidsModeActive(false)
+        reloadAll()
+        toast("Kids Mode OFF")
     }
 
-    fun toggleFocusMode() {
-        scope.launch {
-            if (!shizukuStatus.isReady) {
-                shizuku.requestPermission()
-                toast("Grant Shizuku permission first")
-                return@launch
-            }
-            val next = !focusActive
-            shizuku.setGrayscale(next)
-            grayscaleOn = next
-            shizuku.setDnd(next)
-            for (pkg in focusDistractions) {
-                if (next) {
-                    shizuku.forceStop(pkg)
-                    shizuku.freezePackage(pkg)
-                } else {
-                    shizuku.unfreezePackage(pkg)
-                }
-            }
-            prefs.setFocusModeActive(next)
-            reloadAll()
-            toast(if (next) "Focus ON (${focusDistractions.size} frozen + Mono)" else "Focus OFF")
-        }
-    }
+    fun toggleFocusMode() = viewModel.toggleFocus()
 
     if (kidsModeActive) {
         val allowedKidsApps = remember(apps, kidsApps) {
@@ -494,20 +463,11 @@ fun MonolithLauncher(
                     installersLocked = installersLocked,
                     ambientDisplayOn = ambientDisplayOn,
                     onToggleAmbientDisplay = { next ->
-                        scope.launch {
-                            shizuku.setDozeAlwaysOn(next)
-                            ambientDisplayOn = next
-                            prefs.setAmbientDisplayEnabled(next)
-                            toast(if (next) "Doze ambient display enabled" else "Ambient display disabled")
-                        }
+                        viewModel.setAmbientDisplay(next)
                     },
                     lockscreenNotifMode = lockscreenNotifMode,
                     onChangeLockscreenNotifMode = { mode ->
-                        scope.launch {
-                            shizuku.setLockscreenNotificationMode(mode)
-                            lockscreenNotifMode = mode
-                            toast("Lockscreen: $mode mode")
-                        }
+                        viewModel.setLockscreenMode(mode)
                     },
                     onRequestPermission = { shizuku.requestPermission() },
                     onRefresh = { reloadAll() },
@@ -526,50 +486,22 @@ fun MonolithLauncher(
                         }
                     },
                     onSetAnimScale = { scale ->
-                        scope.launch {
-                            shizuku.setAnimationScale(scale)
-                            toast("Animation scale -> ${scale}x")
-                        }
+                        viewModel.setAnimationScale(scale)
                     },
                     onToggleGrayscale = { next ->
-                        scope.launch {
-                            shizuku.setGrayscale(next)
-                            grayscaleOn = next
-                        }
+                        viewModel.setGrayscale(next)
                     },
                     onToggleStayAwake = { next ->
-                        scope.launch {
-                            shizuku.setStayAwake(next)
-                            stayAwakeOn = next
-                        }
+                        viewModel.setStayAwake(next)
                     },
                     onToggleInstallersLock = { next ->
-                        scope.launch {
-                            shizuku.setInstallersLocked(next)
-                            installersLocked = next
-                            reloadAll()
-                            toast(if (next) "Installers locked" else "Installers unlocked")
-                        }
+                        viewModel.setInstallersLocked(next)
                     },
                     onFreezeToggle = { pkg, freeze ->
-                        scope.launch {
-                            val r = if (freeze) {
-                                shizuku.forceStop(pkg)
-                                shizuku.freezePackage(pkg)
-                            } else {
-                                shizuku.unfreezePackage(pkg)
-                            }
-                            if (!r.ok) toast(r.output)
-                            reloadAll()
-                        }
+                        viewModel.setFrozen(pkg, freeze)
                     },
                     onUnfreezeAll = {
-                        scope.launch {
-                            val frozenList = apps.filter { it.isFrozen }.map { it.packageName }
-                            shizuku.unfreezePackages(frozenList)
-                            reloadAll()
-                            toast("Unfroze ${frozenList.size} app(s)")
-                        }
+                        viewModel.unfreezeAll()
                     },
                     onUninstallApp = { pkg ->
                         scope.launch {
@@ -589,10 +521,7 @@ fun MonolithLauncher(
                         processApkUri(uri)
                     },
                     onTrimCaches = {
-                        scope.launch {
-                            val r = shizuku.trimAllCaches()
-                            toast(if (r.ok) "All caches trimmed" else r.output)
-                        }
+                        viewModel.trimCaches()
                     },
                     onSetDefaultLauncher = {
                         context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
@@ -628,41 +557,23 @@ fun MonolithLauncher(
                         prefs.removeSystemWidgetId(wid)
                     },
                     onTrimCaches = {
-                        scope.launch {
-                            if (shizukuStatus.isReady) {
-                                shizuku.trimAllCaches()
-                                toast("App caches trimmed")
-                            } else {
-                                toast("Enable Enhanced Controls in Settings")
-                            }
-                        }
+                        viewModel.trimCaches()
                     },
                     onOpenDrawer = { drawerOpen = true },
                     onKidsMode = { enterKidsMode() },
                     onToggleFocus = { toggleFocusMode() },
                     onToggleGrayscale = {
-                        scope.launch {
-                            if (!shizukuStatus.isReady) {
-                                shizuku.requestPermission()
-                            } else {
-                                val next = !grayscaleOn
-                                shizuku.setGrayscale(next)
-                                grayscaleOn = next
-                            }
-                        }
+                        viewModel.setGrayscale(!grayscaleOn)
                     },
                     onEditNote = { showNoteDialog = true },
                     onGrantUsageAccess = {
-                        scope.launch {
-                            if (shizukuStatus.isReady) {
-                                shizuku.allowUsageStats()
-                                toast("Screen time enabled")
-                            } else {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            }
+                        if (shizukuStatus.isReady) {
+                            viewModel.allowUsageStats()
+                        } else {
+                            context.startActivity(
+                                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
                         }
                     },
                     onLaunchApp = { launchApp(it) },
@@ -815,28 +726,16 @@ fun MonolithLauncher(
                         icon = Icons.Rounded.AcUnit,
                         label = if (sheetApp.isFrozen) "Resume App" else "Pause App"
                     ) {
-                        scope.launch {
-                            val r = if (sheetApp.isFrozen) {
-                                shizuku.unfreezePackage(sheetApp.packageName)
-                            } else {
-                                shizuku.forceStop(sheetApp.packageName)
-                                shizuku.freezePackage(sheetApp.packageName)
-                            }
-                            toast(if (r.ok) "Done" else r.output)
-                            reloadAll()
-                            selectedAppForSheet = null
-                        }
+                        viewModel.setFrozen(sheetApp.packageName, !sheetApp.isFrozen)
+                        selectedAppForSheet = null
                     }
 
                     SheetAction(
                         icon = Icons.Rounded.StopCircle,
                         label = "Force Close"
                     ) {
-                        scope.launch {
-                            shizuku.forceStop(sheetApp.packageName)
-                            toast("Force stopped ${sheetApp.label}")
-                            selectedAppForSheet = null
-                        }
+                        viewModel.forceStop(sheetApp.packageName, sheetApp.label)
+                        selectedAppForSheet = null
                     }
                 }
 

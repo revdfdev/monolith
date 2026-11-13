@@ -30,10 +30,10 @@ data class ShellResult(val exitCode: Int, val output: String) {
 
 data class AndroidUser(val id: Int, val name: String, val isRunning: Boolean)
 
-class ShizukuManager {
+class ShizukuManager : ShizukuOps {
 
     private val _status = MutableStateFlow<ShizukuState>(ShizukuState.Unavailable)
-    val status: StateFlow<ShizukuState> = _status.asStateFlow()
+    override val status: StateFlow<ShizukuState> = _status.asStateFlow()
 
     @Volatile
     private var shellService: IShizukuShellService? = null
@@ -105,7 +105,7 @@ class ShizukuManager {
         }
     }
 
-    fun requestPermission() {
+    override fun requestPermission() {
         if (!binderAlive()) return
         if (!hasShizukuPermission()) {
             Shizuku.requestPermission(1001)
@@ -163,17 +163,17 @@ class ShizukuManager {
 
     suspend fun mirrorPackageToUser(pkg: String, userId: Int): ShellResult = call { installExisting(pkg, userId) }
 
-    suspend fun freezePackage(pkg: String): ShellResult = call { setEnabled(arrayOf(pkg), false) }
+    override suspend fun freezePackage(pkg: String): ShellResult = call { setEnabled(arrayOf(pkg), false) }
 
-    suspend fun unfreezePackage(pkg: String): ShellResult = call { setEnabled(arrayOf(pkg), true) }
+    override suspend fun unfreezePackage(pkg: String): ShellResult = call { setEnabled(arrayOf(pkg), true) }
 
-    suspend fun forceStop(pkg: String): ShellResult = call { forceStop(pkg) }
+    override suspend fun forceStop(pkg: String): ShellResult = call { forceStop(pkg) }
 
-    suspend fun trimAllCaches(): ShellResult = call { trimCaches() }
+    override suspend fun trimAllCaches(): ShellResult = call { trimCaches() }
 
-    suspend fun setDnd(on: Boolean): ShellResult = call { setDnd(if (on) "alarms" else "off") }
+    override suspend fun setDnd(on: Boolean): ShellResult = call { setDnd(if (on) "alarms" else "off") }
 
-    suspend fun allowUsageStats(): ShellResult = call { allowUsageStats(BuildConfig.APPLICATION_ID) }
+    override suspend fun allowUsageStats(): ShellResult = call { allowUsageStats(BuildConfig.APPLICATION_ID) }
 
     suspend fun getFrozenPackages(): Set<String> {
         val res = call { listDisabledPackages() }
@@ -183,10 +183,10 @@ class ShizukuManager {
             .toSet()
     }
 
-    suspend fun isGrayscaleEnabled(): Boolean =
+    override suspend fun isGrayscaleEnabled(): Boolean =
         getSetting("secure", "accessibility_display_daltonizer_enabled") == "1"
 
-    suspend fun setGrayscale(enabled: Boolean): ShellResult = if (enabled) {
+    override suspend fun setGrayscale(enabled: Boolean): ShellResult = if (enabled) {
         all(
             putSetting("secure", "accessibility_display_daltonizer", "0"),
             putSetting("secure", "accessibility_display_daltonizer_enabled", "1"),
@@ -199,27 +199,21 @@ class ShizukuManager {
         )
     }
 
-    suspend fun setAnimationScale(scale: Float): ShellResult = all(
+    override suspend fun setAnimationScale(scale: Float): ShellResult = all(
         putSetting("global", "window_animation_scale", scale.toString()),
         putSetting("global", "transition_animation_scale", scale.toString()),
         putSetting("global", "animator_duration_scale", scale.toString())
     )
 
-    suspend fun getStayAwake(): Boolean =
+    override suspend fun getStayAwake(): Boolean =
         (getSetting("global", "stay_on_while_plugged_in")?.toIntOrNull() ?: 0) != 0
 
-    suspend fun setStayAwake(enabled: Boolean): ShellResult =
+    override suspend fun setStayAwake(enabled: Boolean): ShellResult =
         putSetting("global", "stay_on_while_plugged_in", if (enabled) "3" else "0")
 
-    suspend fun setInstallersLocked(locked: Boolean): ShellResult {
-        val installers = arrayOf(
-            "com.android.vending",
-            "com.google.android.packageinstaller",
-            "org.fdroid.fdroid",
-            "dev.imranr.obtainium.fdroid",
-            "com.rosan.installer.x.revived"
-        )
-        return call { setEnabled(installers, !locked) }
+    override suspend fun setEnabled(pkgs: List<String>, enabled: Boolean): ShellResult {
+        if (pkgs.isEmpty()) return ShellResult(0, "")
+        return call { setEnabled(pkgs.toTypedArray(), enabled) }
     }
 
     suspend fun uninstallPackage(pkg: String): ShellResult = call { uninstall(pkg) }
@@ -232,12 +226,7 @@ class ShizukuManager {
         }
     }
 
-    suspend fun unfreezePackages(pkgs: List<String>): ShellResult {
-        if (pkgs.isEmpty()) return ShellResult(0, "Nothing to unfreeze")
-        return call { setEnabled(pkgs.toTypedArray(), true) }
-    }
-
-    suspend fun getLockscreenNotificationMode(): String {
+    override suspend fun getLockscreenNotificationMode(): String {
         val show = getSetting("secure", "lock_screen_show_notifications") == "1"
         val priv = getSetting("secure", "lock_screen_allow_private_notifications") == "1"
         return when {
@@ -247,7 +236,7 @@ class ShizukuManager {
         }
     }
 
-    suspend fun setLockscreenNotificationMode(mode: String): ShellResult {
+    override suspend fun setLockscreenNotificationMode(mode: String): ShellResult {
         val (show, priv) = when (mode) {
             "CLEAN" -> 0 to 0
             "QUIET" -> 1 to 0
@@ -259,9 +248,9 @@ class ShizukuManager {
         )
     }
 
-    suspend fun isDozeAlwaysOn(): Boolean = getSetting("secure", "doze_always_on") == "1"
+    override suspend fun isDozeAlwaysOn(): Boolean = getSetting("secure", "doze_always_on") == "1"
 
-    suspend fun setDozeAlwaysOn(enabled: Boolean): ShellResult {
+    override suspend fun setDozeAlwaysOn(enabled: Boolean): ShellResult {
         val v = if (enabled) "1" else "0"
         // AOSP key plus the OnePlus/Oppo OEM AOD keys
         return all(

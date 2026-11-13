@@ -106,3 +106,7 @@ internal fun drawableToImageBitmap(drawable: Drawable): ImageBitmap? {
 }
 
 internal val appIconCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+
+fun interface InstalledCheck {
+    fun isInstalled(pkg: String): Boolean
+}

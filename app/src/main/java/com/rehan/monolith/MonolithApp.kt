@@ -10,13 +10,23 @@ import com.rehan.monolith.ui.home.LauncherViewModel
 import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.dsl.viewModelOf
 import com.rehan.monolith.shizuku.ShizukuManager
+import com.rehan.monolith.shizuku.ShizukuOps
+import com.rehan.monolith.data.InstalledCheck
+import android.content.pm.PackageManager
+import org.koin.dsl.bind
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
 
 val appModule = module {
     single { LauncherPrefs(get()) }
-    single(createdAtStart = true) { ShizukuManager().apply { init() } }
+    single(createdAtStart = true) { ShizukuManager().apply { init() } } bind ShizukuOps::class
+    single {
+        val pm = androidContext().packageManager
+        InstalledCheck { pkg ->
+            runCatching { pm.getPackageInfo(pkg, PackageManager.MATCH_DISABLED_COMPONENTS) }.isSuccess
+        }
+    }
     single {
         val shizuku = get<ShizukuManager>()
         val context = androidContext()
