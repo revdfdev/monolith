@@ -2,6 +2,7 @@ package com.rehan.monolith
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.rehan.monolith.data.LauncherPrefs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals

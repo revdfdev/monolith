@@ -1,5 +1,16 @@
 package com.rehan.monolith
 
+import com.rehan.monolith.data.*
+import com.rehan.monolith.shizuku.*
+import com.rehan.monolith.ui.common.*
+import com.rehan.monolith.ui.home.*
+import com.rehan.monolith.ui.widgets.*
+import com.rehan.monolith.ui.drawer.*
+import com.rehan.monolith.ui.shelf.*
+import com.rehan.monolith.ui.kids.*
+import com.rehan.monolith.ui.install.*
+import com.rehan.monolith.ui.wellbeing.*
+
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.Intent
