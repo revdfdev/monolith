@@ -18,6 +18,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +47,13 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
-        enableEdgeToEdge()
+        // Monolith is always dark: transparent bars with light icons, never the light scrim
+        // that 3-button navigation gets in system light mode.
+        val darkBars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = darkBars, navigationBarStyle = darkBars)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
         appWidgetManager = AppWidgetManager.getInstance(this)

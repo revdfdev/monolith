@@ -599,6 +599,7 @@ fun MonolithLauncher(
             AppDrawerOverlay(
                 apps = apps,
                 showFrozen = showFrozen,
+                gridView = settings.drawerGrid,
                 autoLaunchSingle = autoLaunchSingle,
                 grayscaleOn = grayscaleOn,
                 focusActive = focusActive,
@@ -611,6 +612,7 @@ fun MonolithLauncher(
                 onToggleShowFrozen = {
                     prefs.setShowFrozenInDrawer(!showFrozen)
                 },
+                onToggleGridView = { prefs.setDrawerGrid(!settings.drawerGrid) },
                 onToggleAutoLaunch = {
                     prefs.setAutoLaunchSingleMatch(!autoLaunchSingle)
                 },

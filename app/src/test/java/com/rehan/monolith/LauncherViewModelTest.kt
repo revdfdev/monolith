@@ -44,4 +44,14 @@ class LauncherViewModelTest {
         assertTrue(vm.settings.value.parentPinHash != null)
         assertFalse(vm.settings.value.parentPinHash!!.contains("5531"))
     }
+
+    @Test
+    fun `GIVEN drawer switched to list WHEN prefs are reloaded THEN list view is remembered`() {
+        val prefs = koin.get<LauncherPrefs>()
+        assertTrue(prefs.settings.value.drawerGrid)
+        prefs.setDrawerGrid(false)
+        prefs.flushForTest()
+        val file = java.io.File(org.robolectric.RuntimeEnvironment.getApplication().filesDir, "datastore/monolith_settings.json")
+        assertTrue(file.readText(), file.readText().contains("\"drawerGrid\":false"))
+    }
 }

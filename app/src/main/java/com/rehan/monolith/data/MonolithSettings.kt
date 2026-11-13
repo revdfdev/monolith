@@ -43,6 +43,7 @@ data class MonolithSettings(
     val focusModeActive: Boolean = false,
     val autoLaunchSingleMatch: Boolean = false,
     val showFrozenInDrawer: Boolean = true,
+    val drawerGrid: Boolean = true,
     val kidsApps: Set<String> = emptySet(),
     val kidsModeActive: Boolean = false,
     val parentPinHash: String? = null,

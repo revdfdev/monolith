@@ -71,6 +71,7 @@ class LauncherPrefs(context: Context) {
 
     fun isShowFrozenInDrawer(): Boolean = s.showFrozenInDrawer
     fun setShowFrozenInDrawer(show: Boolean) = edit { it.copy(showFrozenInDrawer = show) }
+    fun setDrawerGrid(grid: Boolean) = edit { it.copy(drawerGrid = grid) }
 
     fun getKidsApps(): Set<String> = s.kidsApps
     fun toggleKidsApp(pkg: String): Boolean {

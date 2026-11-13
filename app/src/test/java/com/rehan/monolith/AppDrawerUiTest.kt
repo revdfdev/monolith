@@ -6,10 +6,13 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import com.rehan.monolith.data.AppEntry
 import com.rehan.monolith.ui.drawer.AppDrawerOverlay
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.koin.core.context.stopKoin
@@ -38,8 +41,9 @@ class AppDrawerUiTest {
     private var closed = 0
 
     private fun show(showPaused: Boolean = true) = rule.setContent {
+        var grid by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
         AppDrawerOverlay(
-            apps = apps, showFrozen = showPaused, autoLaunchSingle = false, grayscaleOn = false,
+            apps = apps, showFrozen = showPaused, gridView = grid, onToggleGridView = { grid = !grid }, autoLaunchSingle = false, grayscaleOn = false,
             pinnedPackages = emptySet(), focusDistractions = emptySet(), kidsApps = emptySet(),
             onClose = { closed++ }, onToggleShowFrozen = {}, onToggleAutoLaunch = {},
             onLaunchApp = { launched += it.packageName }, onLongPressApp = {}
@@ -103,5 +107,19 @@ class AppDrawerUiTest {
         rule.onNodeWithText("Show paused apps").assertIsDisplayed()
         rule.onNodeWithText("Open single search match").assertIsDisplayed()
         rule.onNodeWithText("Show as list").assertIsDisplayed()
+    }
+
+    @Test
+    fun `GIVEN finger held on the strip THEN a bubble shows that letter and disappears on release`() {
+        show()
+        rule.onNodeWithTag("scrubber_bubble").assertDoesNotExist()
+        rule.onNodeWithTag("scrubber_M").performTouchInput { down(center) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("scrubber_bubble").assertIsDisplayed()
+        rule.onNodeWithTag("scrubber_bubble_M", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("app_p.m1").assertIsDisplayed()
+        rule.onNodeWithTag("scrubber_M").performTouchInput { up() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("scrubber_bubble").assertDoesNotExist()
     }
 }

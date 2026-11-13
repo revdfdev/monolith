@@ -1,12 +1,20 @@
 package com.rehan.monolith.ui.drawer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +105,7 @@ private sealed interface DrawerRow {
 fun AppDrawerOverlay(
     apps: List<AppEntry>,
     showFrozen: Boolean,
+    gridView: Boolean,
     autoLaunchSingle: Boolean,
     grayscaleOn: Boolean,
     pinnedPackages: Set<String>,
@@ -107,12 +116,13 @@ fun AppDrawerOverlay(
     focusActive: Boolean = false,
     onClose: () -> Unit,
     onToggleShowFrozen: () -> Unit,
+    onToggleGridView: () -> Unit,
     onToggleAutoLaunch: () -> Unit,
     onLaunchApp: (AppEntry) -> Unit,
     onLongPressApp: (AppEntry) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    var grid by remember { mutableStateOf(true) }
+    val grid = gridView
     var menuOpen by remember { mutableStateOf(false) }
     val showPaused = showFrozen && !focusActive
     val searching = query.isNotBlank()
@@ -217,7 +227,7 @@ fun AppDrawerOverlay(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
                             text = { Text(if (grid) "Show as list" else "Show as grid") },
-                            onClick = { grid = !grid; menuOpen = false }
+                            onClick = { onToggleGridView(); menuOpen = false }
                         )
                         MenuCheck("Show paused apps", showFrozen) { onToggleShowFrozen() }
                         MenuCheck("Open single search match", autoLaunchSingle) { onToggleAutoLaunch() }
@@ -468,28 +478,104 @@ private fun ListApp(
     }
 }
 
+/** A-Z strip: a bubble follows the finger and nearby letters swell (fisheye); the list jumps as you slide. */
 @Composable
 private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
     var height by remember { mutableIntStateOf(1) }
-    fun letterAt(y: Float): Char =
-        letters[(y / height * letters.size).toInt().coerceIn(0, letters.lastIndex)]
-    Column(
-        verticalArrangement = Arrangement.SpaceEvenly,
-        horizontalAlignment = Alignment.CenterHorizontally,
+    var touchY by remember { mutableStateOf<Float?>(null) }
+    var current by remember { mutableStateOf<Char?>(null) }
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+
+    fun positionAt(y: Float): Float = (y / height * letters.size).coerceIn(0f, letters.size - 0.001f)
+    fun select(y: Float) {
+        touchY = y
+        val letter = letters[positionAt(y).toInt()]
+        if (letter != current) {
+            current = letter
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onLetter(letter)
+        }
+    }
+
+    val pos = touchY?.let { positionAt(it) }
+    Box(
         modifier = Modifier
             .width(28.dp)
             .fillMaxHeight()
             .padding(vertical = 8.dp)
             .onSizeChanged { height = it.height.coerceAtLeast(1) }
-            .pointerInput(letters) { detectTapGestures { onLetter(letterAt(it.y)) } }
             .pointerInput(letters) {
-                detectVerticalDragGestures { change, _ -> onLetter(letterAt(change.position.y)) }
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    select(down.position.y)
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.pressed) {
+                            change.consume()
+                            select(change.position.y)
+                        }
+                    } while (change.pressed)
+                    touchY = null
+                    current = null
+                }
             }
             .testTag("scrubber")
     ) {
-        letters.forEach { letter ->
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).testTag("scrubber_$letter")) {
-                Text(letter.toString(), fontSize = 11.sp, color = TextDim, maxLines = 1)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
+            letters.forEachIndexed { i, letter ->
+                val target = if (pos == null) 0f else (1f - kotlin.math.abs(i + 0.5f - pos) / 3f).coerceAtLeast(0f)
+                val swell by animateFloatAsState(target, tween(90), label = "swell")
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .testTag("scrubber_$letter")
+                ) {
+                    Text(
+                        letter.toString(),
+                        fontSize = 11.sp,
+                        fontWeight = if (letter == current) FontWeight.Bold else FontWeight.Normal,
+                        color = if (letter == current) PureWhite else TextDim,
+                        maxLines = 1,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = 1f + swell * 0.9f
+                            scaleY = 1f + swell * 0.9f
+                            translationX = -swell * 22.dp.toPx()
+                        }
+                    )
+                }
+            }
+        }
+
+        val y = touchY
+        val letter = current
+        if (y != null && letter != null) {
+            val bubble = 64.dp
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            x = with(density) { -(bubble / 2 + 40.dp).roundToPx() },
+                            y = (y - with(density) { bubble.toPx() } / 2).toInt()
+                        )
+                    }
+                    .requiredSize(bubble)
+                    .clip(CircleShape)
+                    .background(PureWhite)
+                    .testTag("scrubber_bubble")
+            ) {
+                Text(
+                    letter.toString(),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black,
+                    modifier = Modifier.testTag("scrubber_bubble_$letter")
+                )
             }
         }
     }
