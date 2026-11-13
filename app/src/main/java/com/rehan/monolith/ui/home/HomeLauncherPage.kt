@@ -68,6 +68,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -300,6 +302,8 @@ fun HomeLauncherPage(
         val deckItems = centerWidgets.filterNot { it == "APPS_GRID" }
         val showAppsTiles = centerWidgets.contains("APPS_GRID")
 
+        // No stretch overscroll so leftover swipe reaches homeSwipe (opens drawer / shelf).
+        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -636,6 +640,7 @@ fun HomeLauncherPage(
                     }
                 }
             }
+        }
         }
 
         // 5. Bottom Launcher Dock
