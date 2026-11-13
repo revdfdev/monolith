@@ -28,17 +28,10 @@ data class ShellResult(val exitCode: Int, val output: String) {
 
 data class AndroidUser(val id: Int, val name: String, val isRunning: Boolean)
 
-data class ShizukuStatus(
-    val binderAlive: Boolean = false,
-    val hasPermission: Boolean = false,
-    val serviceBound: Boolean = false,
-    val remoteUid: Int = -1
-)
-
 class ShizukuManager {
 
-    private val _status = MutableStateFlow(ShizukuStatus())
-    val status: StateFlow<ShizukuStatus> = _status.asStateFlow()
+    private val _status = MutableStateFlow<ShizukuState>(ShizukuState.Unavailable)
+    val status: StateFlow<ShizukuState> = _status.asStateFlow()
 
     @Volatile
     private var shellService: IShizukuShellService? = null
@@ -53,39 +46,32 @@ class ShizukuManager {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val bound = IShizukuShellService.Stub.asInterface(service)
+            val bound = IShizukuShellService.Stub.asInterface(service) ?: return
             shellService = bound
-            val uid = try {
-                bound?.uid ?: -1
-            } catch (_: Throwable) {
-                -1
-            }
-            _status.value = _status.value.copy(
-                binderAlive = Shizuku.pingBinder(),
-                hasPermission = hasShizukuPermission(),
-                serviceBound = bound != null,
-                remoteUid = uid
-            )
+            val uid = try { bound.uid } catch (_: Throwable) { -1 }
+            dispatch(ShizukuEvent.ServiceConnected(uid))
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             shellService = null
-            _status.value = _status.value.copy(
-                serviceBound = false,
-                remoteUid = -1
-            )
+            dispatch(ShizukuEvent.ServiceDisconnected(binderAlive(), hasShizukuPermission()))
         }
     }
 
     private val binderListener = Shizuku.OnBinderReceivedListener { refreshAndBind() }
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
         shellService = null
-        _status.value = ShizukuStatus()
+        dispatch(ShizukuEvent.BinderDead)
     }
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
-        val granted = grantResult == PackageManager.PERMISSION_GRANTED
-        _status.value = _status.value.copy(hasPermission = granted)
-        if (granted) bindService()
+        dispatch(ShizukuEvent.PermissionResult(grantResult == PackageManager.PERMISSION_GRANTED))
+    }
+
+    @Synchronized
+    private fun dispatch(event: ShizukuEvent) {
+        val t = reduceShizuku(_status.value, event)
+        _status.value = t.state
+        if (t.bind) bindService()
     }
 
     fun init() {
@@ -107,6 +93,8 @@ class ShizukuManager {
         }
     }
 
+    private fun binderAlive(): Boolean = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
+
     fun hasShizukuPermission(): Boolean {
         return try {
             Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
@@ -116,29 +104,16 @@ class ShizukuManager {
     }
 
     fun requestPermission() {
-        if (!Shizuku.pingBinder()) return
+        if (!binderAlive()) return
         if (!hasShizukuPermission()) {
             Shizuku.requestPermission(1001)
         } else {
-            bindService()
+            refreshAndBind()
         }
     }
 
     fun refreshAndBind() {
-        val alive = try {
-            Shizuku.pingBinder()
-        } catch (_: Throwable) {
-            false
-        }
-        val granted = hasShizukuPermission()
-        _status.value = _status.value.copy(
-            binderAlive = alive,
-            hasPermission = granted,
-            serviceBound = shellService != null
-        )
-        if (alive && granted && shellService == null) {
-            bindService()
-        }
+        dispatch(ShizukuEvent.Refresh(binderAlive(), hasShizukuPermission()))
     }
 
     private fun bindService() {

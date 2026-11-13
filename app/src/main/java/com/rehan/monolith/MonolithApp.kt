@@ -16,14 +16,14 @@ import org.koin.dsl.module
 
 val appModule = module {
     single { LauncherPrefs(get()) }
-    single { ShizukuManager().apply { init() } }
+    single(createdAtStart = true) { ShizukuManager().apply { init() } }
     single {
         val shizuku = get<ShizukuManager>()
         val context = androidContext()
         AppRepository(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
             dispatcher = Dispatchers.Default,
-            frozenPackages = { if (shizuku.status.value.serviceBound) shizuku.getFrozenPackages() else emptySet() },
+            frozenPackages = { if (shizuku.status.value.isReady) shizuku.getFrozenPackages() else emptySet() },
             loader = { frozen, emit -> loadInstalledApps(context, frozen, emit) }
         ).apply { registerPackageCallback(context) }
     }

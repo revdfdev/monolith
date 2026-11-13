@@ -71,7 +71,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ShizukuShelfPage(
-    status: ShizukuStatus,
+    status: ShizukuState,
     apps: List<AppEntry>,
     kidsAppCount: Int,
     hasParentPin: Boolean,
@@ -149,24 +149,24 @@ fun ShizukuShelfPage(
         Surface(
             color = SurfaceBlack,
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, if (status.serviceBound) PureWhite else BorderHairline),
+            border = BorderStroke(1.dp, if (status.isReady) PureWhite else BorderHairline),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    if (status.serviceBound) "Enhanced Controls: Active" else "Enhanced Controls: Off",
+                    if (status.isReady) "Enhanced Controls: Active" else "Enhanced Controls: Off",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = PureWhite
                 )
                 Text(
-                    if (status.serviceBound) "App freezing, installer lock & system tweaks ready" else "Grant Shizuku access to unlock app freezing & system tweaks",
+                    if (status.isReady) "App freezing, installer lock & system tweaks ready" else "Grant Shizuku access to unlock app freezing & system tweaks",
                     fontSize = 11.sp,
                     color = TextDim
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!status.serviceBound) {
+                    if (!status.isReady) {
                         Button(
                             onClick = onRequestPermission,
                             colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack)
@@ -277,7 +277,7 @@ fun ShizukuShelfPage(
                     if (frozenCount > 0) {
                         OutlinedButton(
                             onClick = onUnfreezeAll,
-                            enabled = status.serviceBound,
+                            enabled = status.isReady,
                             border = BorderStroke(1.dp, BorderHairline)
                         ) {
                             Text("Unfreeze All", fontSize = 11.sp, color = PureWhite)
@@ -310,7 +310,7 @@ fun ShizukuShelfPage(
                             Switch(
                                 checked = app.isFrozen,
                                 onCheckedChange = { freeze -> onFreezeToggle(app.packageName, freeze) },
-                                enabled = status.serviceBound,
+                                enabled = status.isReady,
                                 colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
                             )
                         }
@@ -345,13 +345,13 @@ fun ShizukuShelfPage(
                     Switch(
                         checked = installersLocked,
                         onCheckedChange = onToggleInstallersLock,
-                        enabled = status.serviceBound,
+                        enabled = status.isReady,
                         colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
                     )
                 }
                 Button(
                     onClick = { apkPicker.launch("application/vnd.android.package-archive") },
-                    enabled = status.serviceBound,
+                    enabled = status.isReady,
                     colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -407,7 +407,7 @@ fun ShizukuShelfPage(
                     Switch(
                         checked = grayscaleOn,
                         onCheckedChange = onToggleGrayscale,
-                        enabled = status.serviceBound,
+                        enabled = status.isReady,
                         colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
                     )
                 }
@@ -416,7 +416,7 @@ fun ShizukuShelfPage(
                     Switch(
                         checked = stayAwakeOn,
                         onCheckedChange = onToggleStayAwake,
-                        enabled = status.serviceBound,
+                        enabled = status.isReady,
                         colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
                     )
                 }
@@ -441,7 +441,7 @@ fun ShizukuShelfPage(
                                 border = BorderStroke(1.dp, if (isSelected) PureWhite else BorderHairline),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable(enabled = status.serviceBound) {
+                                    .clickable(enabled = status.isReady) {
                                         onChangeLockscreenNotifMode(mode)
                                     }
                             ) {
@@ -465,7 +465,7 @@ fun ShizukuShelfPage(
                     Switch(
                         checked = ambientDisplayOn,
                         onCheckedChange = onToggleAmbientDisplay,
-                        enabled = status.serviceBound,
+                        enabled = status.isReady,
                         colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
                     )
                 }
@@ -473,7 +473,7 @@ fun ShizukuShelfPage(
                     listOf(0f, 0.5f, 1.0f).forEach { scale ->
                         OutlinedButton(
                             onClick = { onSetAnimScale(scale) },
-                            enabled = status.serviceBound,
+                            enabled = status.isReady,
                             border = BorderStroke(1.dp, BorderHairline),
                             modifier = Modifier.weight(1f)
                         ) {
@@ -483,7 +483,7 @@ fun ShizukuShelfPage(
                 }
                 OutlinedButton(
                     onClick = onTrimCaches,
-                    enabled = status.serviceBound,
+                    enabled = status.isReady,
                     border = BorderStroke(1.dp, BorderHairline),
                     modifier = Modifier.fillMaxWidth()
                 ) {

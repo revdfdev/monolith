@@ -207,7 +207,7 @@ fun MonolithLauncher(
         scope.launch {
             appRepository.refresh()
             usageMinutesMap = readTodayAppUsageMinutes(context)
-            if (shizukuStatus.serviceBound) {
+            if (shizukuStatus.isReady) {
                 grayscaleOn = shizuku.isGrayscaleEnabled()
                 stayAwakeOn = shizuku.getStayAwake()
                 ambientDisplayOn = shizuku.isDozeAlwaysOn()
@@ -216,7 +216,7 @@ fun MonolithLauncher(
         }
     }
 
-    LaunchedEffect(shizukuStatus.serviceBound) {
+    LaunchedEffect(shizukuStatus.isReady) {
         appRepository.refresh()
     }
 
@@ -296,7 +296,7 @@ fun MonolithLauncher(
             return
         }
         scope.launch {
-            if (shizukuStatus.serviceBound) {
+            if (shizukuStatus.isReady) {
                 shizuku.setInstallersLocked(true)
             }
             prefs.setKidsModeActive(true)
@@ -306,7 +306,7 @@ fun MonolithLauncher(
 
     fun exitKidsMode() {
         scope.launch {
-            if (shizukuStatus.serviceBound) {
+            if (shizukuStatus.isReady) {
                 shizuku.setInstallersLocked(false)
             }
             prefs.setKidsModeActive(false)
@@ -317,7 +317,7 @@ fun MonolithLauncher(
 
     fun toggleFocusMode() {
         scope.launch {
-            if (!shizukuStatus.serviceBound) {
+            if (!shizukuStatus.isReady) {
                 shizuku.requestPermission()
                 toast("Grant Shizuku permission first")
                 return@launch
@@ -574,7 +574,7 @@ fun MonolithLauncher(
                     },
                     onUninstallApp = { pkg ->
                         scope.launch {
-                            if (shizukuStatus.serviceBound) {
+                            if (shizukuStatus.isReady) {
                                 val r = shizuku.uninstallPackage(pkg)
                                 toast(if (r.ok) "Uninstalled $pkg" else r.output)
                                 reloadAll()
@@ -633,7 +633,7 @@ fun MonolithLauncher(
                     onExecShell = { cmd -> shizuku.exec(cmd) },
                     onTrimCaches = {
                         scope.launch {
-                            if (shizukuStatus.serviceBound) {
+                            if (shizukuStatus.isReady) {
                                 shizuku.trimAllCaches()
                                 toast("App caches trimmed")
                             } else {
@@ -646,7 +646,7 @@ fun MonolithLauncher(
                     onToggleFocus = { toggleFocusMode() },
                     onToggleGrayscale = {
                         scope.launch {
-                            if (!shizukuStatus.serviceBound) {
+                            if (!shizukuStatus.isReady) {
                                 shizuku.requestPermission()
                             } else {
                                 val next = !grayscaleOn
@@ -658,7 +658,7 @@ fun MonolithLauncher(
                     onEditNote = { showNoteDialog = true },
                     onGrantUsageAccess = {
                         scope.launch {
-                            if (shizukuStatus.serviceBound) {
+                            if (shizukuStatus.isReady) {
                                 shizuku.exec("appops set ${BuildConfig.APPLICATION_ID} GET_USAGE_STATS allow")
                                 toast("Screen time enabled")
                             } else {
@@ -704,7 +704,7 @@ fun MonolithLauncher(
                 mindfulApps = mindfulPauseApps,
                 usageMinutesMap = usageMinutesMap,
                 kidsApps = kidsApps,
-                shizukuBound = shizukuStatus.serviceBound,
+                shizukuBound = shizukuStatus.isReady,
                 onClose = { drawerOpen = false },
                 onToggleShowFrozen = {
                     prefs.setShowFrozenInDrawer(!showFrozen)
@@ -816,7 +816,7 @@ fun MonolithLauncher(
                     selectedAppForSheet = null
                 }
 
-                if (shizukuStatus.serviceBound) {
+                if (shizukuStatus.isReady) {
                     SheetAction(
                         icon = Icons.Rounded.AcUnit,
                         label = if (sheetApp.isFrozen) "Resume App" else "Pause App"
@@ -1089,7 +1089,7 @@ fun MonolithLauncher(
     if (apkInfo != null) {
         PackageInstallDialog(
             apkInfo = apkInfo,
-            shizukuBound = shizukuStatus.serviceBound,
+            shizukuBound = shizukuStatus.isReady,
             onInstall = { flags ->
                 scope.launch {
                     val cmd = "pm install ${flags.joinToString(" ")} \"${apkInfo.path}\""

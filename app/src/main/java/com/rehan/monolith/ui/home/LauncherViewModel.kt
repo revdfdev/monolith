@@ -6,7 +6,7 @@ import com.rehan.monolith.data.AppRepository
 import com.rehan.monolith.data.LauncherPrefs
 import com.rehan.monolith.data.MonolithSettings
 import com.rehan.monolith.shizuku.ShizukuManager
-import com.rehan.monolith.shizuku.ShizukuStatus
+import com.rehan.monolith.shizuku.ShizukuState
 import kotlinx.coroutines.flow.StateFlow
 
 class LauncherViewModel(
@@ -16,5 +16,5 @@ class LauncherViewModel(
 ) : ViewModel() {
     val settings: StateFlow<MonolithSettings> = prefs.settings
     val apps: StateFlow<List<AppEntry>> = appRepository.apps
-    val shizukuStatus: StateFlow<ShizukuStatus> = shizuku.status
+    val shizukuStatus: StateFlow<ShizukuState> = shizuku.status
 }

@@ -83,7 +83,7 @@ import java.util.Locale
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeLauncherPage(
-    shizukuStatus: ShizukuStatus,
+    shizukuStatus: ShizukuState,
     apps: List<AppEntry>,
     pinnedPackages: List<String>,
     focusActive: Boolean,
@@ -221,7 +221,7 @@ fun HomeLauncherPage(
                         modifier = Modifier
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(if (shizukuStatus.serviceBound) PureWhite else TextDim)
+                            .background(if (shizukuStatus.isReady) PureWhite else TextDim)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -455,7 +455,7 @@ fun HomeLauncherPage(
                         else -> {
                             val custom = customWidgets.firstOrNull { it.id == wid }
                             if (custom != null) {
-                                CustomCenterWidget(custom, shizukuStatus.serviceBound, onExecShell)
+                                CustomCenterWidget(custom, shizukuStatus.isReady, onExecShell)
                             }
                         }
                     }
