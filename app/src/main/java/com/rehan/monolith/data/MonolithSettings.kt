@@ -63,8 +63,6 @@ data class MonolithSettings(
     val customWidgets: List<CustomWidgetSpec> = emptyList(),
     val dailyLimits: Map<String, Int> = emptyMap(),
     val mindfulPauseApps: Set<String> = emptySet(),
-    val lockscreenMessage: String = "Stay intentional • Monolith",
-    val lockscreenMessageEnabled: Boolean = false,
     val ambientDisplayEnabled: Boolean = true
 )
 
@@ -164,8 +162,6 @@ internal class LegacyPrefsMigration(private val context: Context) : DataMigratio
                 if (parts.size == 2 && mins != null && mins > 0) parts[0] to mins else null
             }?.toMap() ?: d.dailyLimits,
             mindfulPauseApps = p.getStringSet("mindful_pause_apps", null)?.toSet() ?: d.mindfulPauseApps,
-            lockscreenMessage = str("lockscreen_owner_msg") ?: d.lockscreenMessage,
-            lockscreenMessageEnabled = p.getBoolean("lockscreen_owner_msg_enabled", d.lockscreenMessageEnabled),
             ambientDisplayEnabled = p.getBoolean("ambient_display_enabled", d.ambientDisplayEnabled)
         )
     }

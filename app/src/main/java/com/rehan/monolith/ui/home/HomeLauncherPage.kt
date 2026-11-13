@@ -267,7 +267,6 @@ fun HomeLauncherPage(
 
         Spacer(Modifier.height(10.dp))
 
-        // Lumia / Sailfish Square-Tile Grid (Clock + Battery + Chosen Widgets + System Widgets + App Tiles)
         val deckItems = centerWidgets.filterNot { it == "APPS_GRID" }
         val showAppsTiles = centerWidgets.contains("APPS_GRID")
 
@@ -512,7 +511,6 @@ fun HomeLauncherPage(
                 }
             }
 
-            // Lumia / Sailfish App Tiles
             if (showAppsTiles) {
                 item(span = { GridItemSpan(2) }) {
                     Row(

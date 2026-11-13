@@ -78,11 +78,6 @@ fun ShizukuShelfPage(
     grayscaleOn: Boolean,
     stayAwakeOn: Boolean,
     installersLocked: Boolean,
-    lockscreenMsgOn: Boolean,
-    lockscreenMsgText: String,
-    onToggleLockscreenMsg: (Boolean) -> Unit,
-    onSaveLockscreenMsg: (String) -> Unit,
-    onSetOledBlackLockscreen: () -> Unit,
     ambientDisplayOn: Boolean,
     onToggleAmbientDisplay: (Boolean) -> Unit,
     lockscreenNotifMode: String,
@@ -465,7 +460,7 @@ fun ShizukuShelfPage(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Native Ambient Display (Doze AOD)", fontSize = 14.sp)
-                        Text("Hardware-accelerated OLED ambient clock & notifications", fontSize = 11.sp, color = TextDim)
+                        Text("Android always-on display setting (doze_always_on)", fontSize = 11.sp, color = TextDim)
                     }
                     Switch(
                         checked = ambientDisplayOn,
@@ -473,55 +468,6 @@ fun ShizukuShelfPage(
                         enabled = status.serviceBound,
                         colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
                     )
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Lockscreen Intention Message", fontSize = 14.sp)
-                        Text("Display a custom focus motto on native lockscreen", fontSize = 11.sp, color = TextDim)
-                    }
-                    Switch(
-                        checked = lockscreenMsgOn,
-                        onCheckedChange = onToggleLockscreenMsg,
-                        enabled = status.serviceBound,
-                        colors = SwitchDefaults.colors(checkedThumbColor = PureBlack, checkedTrackColor = PureWhite)
-                    )
-                }
-                if (lockscreenMsgOn) {
-                    var draftMsg by remember(lockscreenMsgText) { mutableStateOf(lockscreenMsgText) }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = draftMsg,
-                            onValueChange = { draftMsg = it },
-                            placeholder = { Text("Motto (e.g. Stay intentional)", color = TextDim) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PureWhite,
-                                unfocusedBorderColor = BorderHairline,
-                                focusedTextColor = PureWhite,
-                                unfocusedTextColor = PureWhite
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedButton(
-                            onClick = { onSaveLockscreenMsg(draftMsg.trim()) },
-                            enabled = status.serviceBound,
-                            border = BorderStroke(1.dp, BorderHairline)
-                        ) {
-                            Text("Save", color = PureWhite)
-                        }
-                    }
-                }
-                OutlinedButton(
-                    onClick = onSetOledBlackLockscreen,
-                    border = BorderStroke(1.dp, BorderHairline),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Set Lockscreen Wallpaper to Pitch Black", color = PureWhite)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(0f, 0.5f, 1.0f).forEach { scale ->

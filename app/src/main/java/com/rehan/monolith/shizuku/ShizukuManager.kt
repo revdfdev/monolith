@@ -295,21 +295,4 @@ class ShizukuManager {
         val cmd = "settings put secure doze_always_on $v; settings put secure Setting_AodEnable $v 2>/dev/null; settings put secure Setting_AodSwitchEnable $v 2>/dev/null; true"
         return exec(cmd)
     }
-
-    suspend fun getLockscreenOwnerInfo(): String {
-        val res = exec("settings get secure lock_screen_owner_info")
-        return if (res.ok && res.output.trim() != "null") res.output.trim() else ""
-    }
-
-    suspend fun setLockscreenOwnerInfo(enabled: Boolean, message: String): ShellResult {
-        val enVal = if (enabled) 1 else 0
-        val escaped = message.replace("\"", "\\\"")
-        val cmd = "settings put secure lock_screen_owner_info_enabled $enVal; settings put secure lock_screen_owner_info \"$escaped\""
-        return exec(cmd)
-    }
-
-    suspend fun setPitchBlackLockscreenWallpaper(): ShellResult {
-        // Universal via Shizuku: generate a 1x1 black pixel or reset lockscreen
-        return exec("cmd wallpaper set-empty -l 2>/dev/null || true")
-    }
 }

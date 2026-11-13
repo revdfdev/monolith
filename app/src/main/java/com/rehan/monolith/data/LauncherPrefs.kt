@@ -146,12 +146,6 @@ class LauncherPrefs(context: Context) {
         return added
     }
 
-    fun getLockscreenMessage(): String = s.lockscreenMessage
-    fun setLockscreenMessage(msg: String) = edit { it.copy(lockscreenMessage = msg) }
-
-    fun isLockscreenMessageEnabled(): Boolean = s.lockscreenMessageEnabled
-    fun setLockscreenMessageEnabled(enabled: Boolean) = edit { it.copy(lockscreenMessageEnabled = enabled) }
-
     fun isAmbientDisplayEnabled(): Boolean = s.ambientDisplayEnabled
     fun setAmbientDisplayEnabled(enabled: Boolean) = edit { it.copy(ambientDisplayEnabled = enabled) }
 }

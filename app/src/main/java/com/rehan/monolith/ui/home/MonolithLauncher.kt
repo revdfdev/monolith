@@ -179,8 +179,6 @@ fun MonolithLauncher(
     var focusActive by remember { mutableStateOf(prefs.isFocusModeActive()) }
     var grayscaleOn by remember { mutableStateOf(false) }
     var stayAwakeOn by remember { mutableStateOf(false) }
-    var lockscreenMsgOn by remember { mutableStateOf(prefs.isLockscreenMessageEnabled()) }
-    var lockscreenMsgText by remember { mutableStateOf(prefs.getLockscreenMessage()) }
     var lockscreenNotifMode by remember { mutableStateOf("QUIET") }
     var ambientDisplayOn by remember { mutableStateOf(prefs.isAmbientDisplayEnabled()) }
     var installersLocked by remember { mutableStateOf(false) }
@@ -226,19 +224,7 @@ fun MonolithLauncher(
     LaunchedEffect(apps) {
         val loaded = apps
         if (!prefs.hasSeededDefaults() && pinnedPackages.isEmpty() && loaded.isNotEmpty()) {
-            val preferred = listOf(
-                "com.brave.browser",
-                "com.whatsapp",
-                "md.obsidian",
-                "com.anthropic.claude",
-                "com.openai.chatgpt",
-                "com.github.android",
-                "com.phonepe.app"
-            )
-            val available = loaded.map { it.packageName }.toSet()
-            val seeded = preferred.filter { available.contains(it) }.ifEmpty {
-                loaded.filter { !it.isSystem && !it.isFrozen }.take(5).map { it.packageName }
-            }
+            val seeded = loaded.filter { !it.isSystem && !it.isFrozen }.take(4).map { it.packageName }
             if (seeded.isNotEmpty()) {
                 prefs.setPinnedPackages(seeded)
                 pinnedPackages = seeded
@@ -481,7 +467,6 @@ fun MonolithLauncher(
             .background(ambienceBrush)
             .navigationBarsPadding()
     ) {
-        // Subtle Sailfish-style top page indicator
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -513,38 +498,6 @@ fun MonolithLauncher(
                     grayscaleOn = grayscaleOn,
                     stayAwakeOn = stayAwakeOn,
                     installersLocked = installersLocked,
-                    lockscreenMsgOn = lockscreenMsgOn,
-                    lockscreenMsgText = lockscreenMsgText,
-                    onToggleLockscreenMsg = { next ->
-                        scope.launch {
-                            shizuku.setLockscreenOwnerInfo(next, lockscreenMsgText)
-                            lockscreenMsgOn = next
-                            prefs.setLockscreenMessageEnabled(next)
-                            toast(if (next) "Lockscreen message set" else "Lockscreen message removed")
-                        }
-                    },
-                    onSaveLockscreenMsg = { newMsg ->
-                        scope.launch {
-                            lockscreenMsgText = newMsg
-                            prefs.setLockscreenMessage(newMsg)
-                            if (lockscreenMsgOn) {
-                                shizuku.setLockscreenOwnerInfo(true, newMsg)
-                            }
-                            toast("Lockscreen message saved")
-                        }
-                    },
-                    onSetOledBlackLockscreen = {
-                        val wm = android.app.WallpaperManager.getInstance(context)
-                        try {
-                            val bmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888).apply {
-                                eraseColor(android.graphics.Color.BLACK)
-                            }
-                            wm.setBitmap(bmp, null, true, android.app.WallpaperManager.FLAG_LOCK)
-                            toast("Pitch black lockscreen wallpaper applied")
-                        } catch (e: Exception) {
-                            toast("Wallpaper set failed: ${e.message}")
-                        }
-                    },
                     ambientDisplayOn = ambientDisplayOn,
                     onToggleAmbientDisplay = { next ->
                         scope.launch {
