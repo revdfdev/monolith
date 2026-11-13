@@ -43,7 +43,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -55,7 +54,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,35 +78,26 @@ fun AppDrawerOverlay(
     mindfulApps: Set<String> = emptySet(),
     usageMinutesMap: Map<String, Int> = emptyMap(),
     kidsApps: Set<String>,
-    shizukuBound: Boolean,
     focusActive: Boolean = false,
     onClose: () -> Unit,
     onToggleShowFrozen: () -> Unit,
     onToggleAutoLaunch: () -> Unit,
     onLaunchApp: (AppEntry) -> Unit,
-    onLongPressApp: (AppEntry) -> Unit,
-    onExecShell: suspend (String) -> ShellResult
+    onLongPressApp: (AppEntry) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
-    var shellOutput by remember { mutableStateOf("") }
 
-    val isShellMode = query.startsWith(">")
     val filtered = remember(apps, query, showFrozen, focusActive) {
-        if (query.startsWith(">")) {
-            emptyList()
-        } else {
-            apps.filter { entry ->
-                ((!focusActive && showFrozen) || !entry.isFrozen) &&
-                    (query.isBlank() ||
-                        entry.label.contains(query, ignoreCase = true) ||
-                        entry.packageName.contains(query, ignoreCase = true))
-            }
+        apps.filter { entry ->
+            ((!focusActive && showFrozen) || !entry.isFrozen) &&
+                (query.isBlank() ||
+                    entry.label.contains(query, ignoreCase = true) ||
+                    entry.packageName.contains(query, ignoreCase = true))
         }
     }
 
     LaunchedEffect(filtered, query, autoLaunchSingle) {
-        if (autoLaunchSingle && !isShellMode && query.length >= 2 && filtered.size == 1 && !filtered[0].isFrozen) {
+        if (autoLaunchSingle && query.length >= 2 && filtered.size == 1 && !filtered[0].isFrozen) {
             onLaunchApp(filtered[0])
             query = ""
         }
@@ -137,7 +126,7 @@ fun AppDrawerOverlay(
                 singleLine = true,
                 leadingIcon = {
                     Icon(
-                        if (isShellMode) Icons.Rounded.Terminal else Icons.Rounded.Search,
+                        Icons.Rounded.Search,
                         contentDescription = null,
                         tint = PureWhite
                     )
@@ -150,15 +139,7 @@ fun AppDrawerOverlay(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(
                     onGo = {
-                        if (isShellMode && shizukuBound) {
-                            val cmd = query.removePrefix(">").trim()
-                            if (cmd.isNotEmpty()) {
-                                scope.launch {
-                                    val r = onExecShell(cmd)
-                                    shellOutput = "$ $cmd\n${r.output.ifBlank { "(exit ${r.exitCode})" }}"
-                                }
-                            }
-                        } else if (filtered.isNotEmpty() && !filtered[0].isFrozen) {
+                        if (filtered.isNotEmpty() && !filtered[0].isFrozen) {
                             onLaunchApp(filtered[0])
                         }
                     }
@@ -174,26 +155,6 @@ fun AppDrawerOverlay(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.weight(1f)
             )
-        }
-
-        if (shellOutput.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Surface(
-                color = LocalTileSurface.current,
-                contentColor = PureWhite,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, LocalTileBorder.current),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("OUTPUT", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = TextDim)
-                        Text("CLEAR", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = PureWhite, modifier = Modifier.clickable { shellOutput = "" })
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(shellOutput, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = PureWhite, maxLines = 10)
-                }
-            }
         }
 
         Spacer(Modifier.height(10.dp))

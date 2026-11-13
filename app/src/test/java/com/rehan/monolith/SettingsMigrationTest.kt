@@ -2,7 +2,6 @@ package com.rehan.monolith
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.rehan.monolith.data.CustomWidgetSpec
 import com.rehan.monolith.data.LauncherPrefs
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -66,11 +65,10 @@ class SettingsMigrationTest {
         assertEquals("AMBER", p.getHomeConfig().amoledAccent)
         assertFalse(p.getHomeConfig().showStopwatch)
         assertTrue(p.getHomeConfig().showClock)
-        assertEquals(listOf("STOPWATCH", "CUSTOM_1"), p.getCenterWidgets())
+        assertEquals(listOf("STOPWATCH"), p.getCenterWidgets())
         assertEquals("l.p", p.getLeftDockPkg())
         assertEquals("r.p", p.getRightDockPkg())
         assertEquals(listOf(7, 9), p.getSystemWidgetIds())
-        assertEquals(listOf(CustomWidgetSpec("CUSTOM_1", "Up", "uptime")), p.getCustomWidgets())
         assertEquals(mapOf("a.b" to 30, "c.d" to 15), p.getDailyLimits())
         assertEquals(setOf("m.p"), p.getMindfulPauseApps())
         assertFalse(p.isAmbientDisplayEnabled())

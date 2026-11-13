@@ -109,7 +109,7 @@ class LauncherPrefs(context: Context) {
     fun getHomeConfig(): HomeConfig = s.home
     fun saveHomeConfig(cfg: HomeConfig) = edit { it.copy(home = cfg) }
 
-    fun getCenterWidgets(): List<String> = s.centerWidgets
+    fun getCenterWidgets(): List<String> = s.centerWidgets.filterNot { it.startsWith("CUSTOM_") }
     fun saveCenterWidgets(widgets: List<String>) = edit { it.copy(centerWidgets = widgets.distinct()) }
 
     fun getLeftDockPkg(): String? = s.leftDockPkg
@@ -121,18 +121,6 @@ class LauncherPrefs(context: Context) {
     fun getSystemWidgetIds(): List<Int> = s.systemWidgetIds
     fun addSystemWidgetId(id: Int) = edit { it.copy(systemWidgetIds = (it.systemWidgetIds + id).distinct()) }
     fun removeSystemWidgetId(id: Int) = edit { it.copy(systemWidgetIds = it.systemWidgetIds - id) }
-
-    fun getCustomWidgets(): List<CustomWidgetSpec> = s.customWidgets
-
-    fun addCustomWidget(title: String, command: String): CustomWidgetSpec {
-        val spec = CustomWidgetSpec("CUSTOM_${System.currentTimeMillis()}", title.trim(), command.trim())
-        edit { it.copy(customWidgets = it.customWidgets + spec, centerWidgets = (it.centerWidgets + spec.id).distinct()) }
-        return spec
-    }
-
-    fun removeCustomWidget(id: String) = edit {
-        it.copy(customWidgets = it.customWidgets.filterNot { w -> w.id == id }, centerWidgets = it.centerWidgets - id)
-    }
 
     fun getDailyLimits(): Map<String, Int> = s.dailyLimits
     fun setDailyLimit(pkg: String, minutes: Int) = edit {

@@ -94,7 +94,6 @@ fun HomeLauncherPage(
     quickNote: String,
     homeConfig: HomeConfig,
     centerWidgets: List<String>,
-    customWidgets: List<CustomWidgetSpec>,
     systemWidgetIds: List<Int>,
     appWidgetManager: AppWidgetManager,
     appWidgetHost: AppWidgetHost,
@@ -108,7 +107,6 @@ fun HomeLauncherPage(
     onPickLeftDock: () -> Unit,
     onPickRightDock: () -> Unit,
     onRemoveSystemWidget: (Int) -> Unit,
-    onExecShell: suspend (String) -> ShellResult,
     onTrimCaches: () -> Unit,
     onOpenDrawer: () -> Unit,
     onKidsMode: () -> Unit,
@@ -452,12 +450,7 @@ fun HomeLauncherPage(
                                 Text("Edit", fontSize = 10.sp, color = TextDim)
                             }
                         }
-                        else -> {
-                            val custom = customWidgets.firstOrNull { it.id == wid }
-                            if (custom != null) {
-                                CustomCenterWidget(custom, shizukuStatus.isReady, onExecShell)
-                            }
-                        }
+                        else -> {}
                     }
                 }
             }

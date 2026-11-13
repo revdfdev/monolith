@@ -129,8 +129,7 @@ fun MonolithLauncher(
     val quickNote = settings.quickNote
     var showNoteDialog by remember { mutableStateOf(false) }
     val homeConfig = settings.home
-    val centerWidgets = settings.centerWidgets
-    val customWidgets = settings.customWidgets
+    val centerWidgets = settings.centerWidgets.filterNot { it.startsWith("CUSTOM_") }
     var showCustomizer by remember { mutableStateOf(false) }
     var showAppPicker by remember { mutableStateOf(false) }
     var showWidgetManager by remember { mutableStateOf(false) }
@@ -325,7 +324,7 @@ fun MonolithLauncher(
             val next = !focusActive
             shizuku.setGrayscale(next)
             grayscaleOn = next
-            shizuku.exec(if (next) "cmd notification set_dnd alarms" else "cmd notification set_dnd off")
+            shizuku.setDnd(next)
             for (pkg in focusDistractions) {
                 if (next) {
                     shizuku.forceStop(pkg)
@@ -597,8 +596,7 @@ fun MonolithLauncher(
                     },
                     onSetDefaultLauncher = {
                         context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-                    },
-                    onExec = { cmd -> shizuku.exec(cmd) }
+                    }
                 )
 
                 1 -> HomeLauncherPage(
@@ -613,7 +611,6 @@ fun MonolithLauncher(
                     quickNote = quickNote,
                     homeConfig = homeConfig,
                     centerWidgets = centerWidgets,
-                    customWidgets = customWidgets,
                     systemWidgetIds = systemWidgetIds,
                     appWidgetManager = appWidgetManager,
                     appWidgetHost = appWidgetHost,
@@ -630,7 +627,6 @@ fun MonolithLauncher(
                         appWidgetHost.deleteAppWidgetId(wid)
                         prefs.removeSystemWidgetId(wid)
                     },
-                    onExecShell = { cmd -> shizuku.exec(cmd) },
                     onTrimCaches = {
                         scope.launch {
                             if (shizukuStatus.isReady) {
@@ -659,7 +655,7 @@ fun MonolithLauncher(
                     onGrantUsageAccess = {
                         scope.launch {
                             if (shizukuStatus.isReady) {
-                                shizuku.exec("appops set ${BuildConfig.APPLICATION_ID} GET_USAGE_STATS allow")
+                                shizuku.allowUsageStats()
                                 toast("Screen time enabled")
                             } else {
                                 context.startActivity(
@@ -704,7 +700,6 @@ fun MonolithLauncher(
                 mindfulApps = mindfulPauseApps,
                 usageMinutesMap = usageMinutesMap,
                 kidsApps = kidsApps,
-                shizukuBound = shizukuStatus.isReady,
                 onClose = { drawerOpen = false },
                 onToggleShowFrozen = {
                     prefs.setShowFrozenInDrawer(!showFrozen)
@@ -719,8 +714,7 @@ fun MonolithLauncher(
                         launchApp(entry.packageName)
                     }
                 },
-                onLongPressApp = { selectedAppForSheet = it },
-                onExecShell = { cmd -> shizuku.exec(cmd) }
+                onLongPressApp = { selectedAppForSheet = it }
             )
         }
     }
@@ -933,15 +927,8 @@ fun MonolithLauncher(
     if (showWidgetManager) {
         WidgetManagerSheet(
             activeWidgets = centerWidgets,
-            customWidgets = customWidgets,
             onSaveWidgets = { updated ->
                 prefs.saveCenterWidgets(updated)
-            },
-            onAddCustomWidget = { title, cmd ->
-                prefs.addCustomWidget(title, cmd)
-            },
-            onRemoveCustomWidget = { id ->
-                prefs.removeCustomWidget(id)
             },
             onAddSystemWidget = {
                 showWidgetManager = false
@@ -1092,8 +1079,7 @@ fun MonolithLauncher(
             shizukuBound = shizukuStatus.isReady,
             onInstall = { flags ->
                 scope.launch {
-                    val cmd = "pm install ${flags.joinToString(" ")} \"${apkInfo.path}\""
-                    val r = shizuku.exec(cmd)
+                    val r = shizuku.installApk(apkInfo.path, flags)
                     toast(if (r.ok) "Installed ${apkInfo.appLabel}" else r.output.ifBlank { "Install failed" })
                     pendingApkInstall = null
                     reloadAll()

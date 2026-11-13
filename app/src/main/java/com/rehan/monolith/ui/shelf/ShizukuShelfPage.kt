@@ -98,8 +98,7 @@ fun ShizukuShelfPage(
     onUninstallApp: (String) -> Unit,
     onInstallApkUri: (Uri) -> Unit,
     onTrimCaches: () -> Unit,
-    onSetDefaultLauncher: () -> Unit,
-    onExec: suspend (String) -> ShellResult
+    onSetDefaultLauncher: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var showPinWizard by remember { mutableStateOf(false) }

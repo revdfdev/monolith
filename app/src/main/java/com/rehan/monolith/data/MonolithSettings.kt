@@ -35,13 +35,6 @@ data class HomeConfig(
 )
 
 @Serializable
-data class CustomWidgetSpec(
-    val id: String,
-    val title: String,
-    val command: String
-)
-
-@Serializable
 data class MonolithSettings(
     val schemaVersion: Int = 1,
     val pinnedPackages: List<String> = emptyList(),
@@ -60,7 +53,6 @@ data class MonolithSettings(
     val leftDockPkg: String? = null,
     val rightDockPkg: String? = null,
     val systemWidgetIds: List<Int> = emptyList(),
-    val customWidgets: List<CustomWidgetSpec> = emptyList(),
     val dailyLimits: Map<String, Int> = emptyMap(),
     val mindfulPauseApps: Set<String> = emptySet(),
     val ambientDisplayEnabled: Boolean = true
@@ -152,10 +144,6 @@ internal class LegacyPrefsMigration(private val context: Context) : DataMigratio
             leftDockPkg = str("left_dock_pkg"),
             rightDockPkg = str("right_dock_pkg"),
             systemWidgetIds = csv("system_widget_ids")?.mapNotNull { it.trim().toIntOrNull() } ?: d.systemWidgetIds,
-            customWidgets = str("custom_widgets_v1")?.takeIf { it.isNotBlank() }?.split(";;")?.mapNotNull { e ->
-                val parts = e.split("||")
-                if (parts.size >= 3) CustomWidgetSpec(parts[0], parts[1], parts[2]) else null
-            } ?: d.customWidgets,
             dailyLimits = csv("app_daily_limits")?.mapNotNull { e ->
                 val parts = e.split("=")
                 val mins = parts.getOrNull(1)?.toIntOrNull()

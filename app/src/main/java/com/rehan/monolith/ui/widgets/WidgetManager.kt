@@ -63,10 +63,7 @@ import java.util.Locale
 @Composable
 internal fun WidgetManagerSheet(
     activeWidgets: List<String>,
-    customWidgets: List<CustomWidgetSpec>,
     onSaveWidgets: (List<String>) -> Unit,
-    onAddCustomWidget: (String, String) -> Unit,
-    onRemoveCustomWidget: (String) -> Unit,
     onAddSystemWidget: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -82,12 +79,8 @@ internal fun WidgetManagerSheet(
             "NOTES" to "Scratchpad"
         )
     }
-    var customTitle by remember { mutableStateOf("") }
-    var customCmd by remember { mutableStateOf("") }
-
     fun labelFor(id: String): String {
         return catalog.firstOrNull { it.first == id }?.second
-            ?: customWidgets.firstOrNull { it.id == id }?.title
             ?: id
     }
 
@@ -133,8 +126,7 @@ internal fun WidgetManagerSheet(
                         }
                         if (activeWidgets.size > 1) {
                             Text("✕", fontSize = 12.sp, color = TextDim, modifier = Modifier.clickable {
-                                if (id.startsWith("CUSTOM_")) onRemoveCustomWidget(id)
-                                else onSaveWidgets(activeWidgets.filterNot { it == id })
+                                onSaveWidgets(activeWidgets.filterNot { it == id })
                             }.padding(4.dp))
                         }
                     }
@@ -157,35 +149,6 @@ internal fun WidgetManagerSheet(
                 }
             }
 
-            HorizontalDivider(color = BorderHairline)
-            Text("CREATE CUSTOM WIDGET", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = TextDim)
-            OutlinedTextField(
-                value = customTitle,
-                onValueChange = { customTitle = it },
-                placeholder = { Text("Title (e.g. Uptime)", fontSize = 12.sp) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = customCmd,
-                onValueChange = { customCmd = it },
-                placeholder = { Text("Shell cmd or text (e.g. uptime -p)", fontSize = 12.sp) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(
-                onClick = {
-                    if (customTitle.isNotBlank() && customCmd.isNotBlank()) {
-                        onAddCustomWidget(customTitle, customCmd)
-                        customTitle = ""
-                        customCmd = ""
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Add Custom Widget")
-            }
             Spacer(Modifier.height(16.dp))
         }
     }
