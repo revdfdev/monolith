@@ -89,6 +89,7 @@ internal suspend fun loadInstalledApps(
                 val pkg = ri.activityInfo.packageName
                 try {
                     val icon = drawableToImageBitmap(ri.loadIcon(pm))
+                        ?: drawableToImageBitmap(pm.defaultActivityIcon)
                     if (icon != null) {
                         appIconCache[pkg] = icon
                     }

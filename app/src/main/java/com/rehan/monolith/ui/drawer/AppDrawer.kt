@@ -1,70 +1,96 @@
 package com.rehan.monolith.ui.drawer
 
-import com.rehan.monolith.*
-import com.rehan.monolith.data.*
-import com.rehan.monolith.shizuku.*
-import com.rehan.monolith.ui.common.*
-import com.rehan.monolith.ui.home.*
-import com.rehan.monolith.ui.widgets.*
-import com.rehan.monolith.ui.shelf.*
-import com.rehan.monolith.ui.kids.*
-import com.rehan.monolith.ui.install.*
-import com.rehan.monolith.ui.wellbeing.*
-
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rehan.monolith.data.AppEntry
+import com.rehan.monolith.ui.common.MonoBadge
+import com.rehan.monolith.ui.common.MonoFilter
+import com.rehan.monolith.ui.common.PureWhite
+import com.rehan.monolith.ui.common.TextDim
 import kotlinx.coroutines.launch
+
+private val DrawerBackground = Color.Black
+private val SearchSurface = Color(0xFF141414)
+
+private sealed interface DrawerRow {
+    val key: String
+    data class Header(val letter: Char) : DrawerRow { override val key = "h_$letter" }
+    data class App(val app: AppEntry) : DrawerRow { override val key = app.packageName }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -86,239 +112,384 @@ fun AppDrawerOverlay(
     onLongPressApp: (AppEntry) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
+    var grid by remember { mutableStateOf(true) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val showPaused = showFrozen && !focusActive
+    val searching = query.isNotBlank()
+    val useGrid = grid && !focusActive
 
-    val filtered = remember(apps, query, showFrozen, focusActive) {
-        apps.filter { entry ->
-            ((!focusActive && showFrozen) || !entry.isFrozen) &&
-                (query.isBlank() ||
-                    entry.label.contains(query, ignoreCase = true) ||
-                    entry.packageName.contains(query, ignoreCase = true))
+    val sections = remember(apps, showPaused) { buildDrawerSections(apps, showPaused) }
+    val results = remember(apps, query, showPaused) { searchApps(apps, query, showPaused) }
+
+    // Grid view is one continuous run of icons (no half-empty rows); list view gets letter headers.
+    val rows: List<DrawerRow> = remember(sections, results, searching, useGrid) {
+        when {
+            searching -> results.map { DrawerRow.App(it) }
+            useGrid -> sections.flatMap { s -> s.apps.map { DrawerRow.App(it) } }
+            else -> sections.flatMap { s -> listOf(DrawerRow.Header(s.letter)) + s.apps.map { DrawerRow.App(it) } }
+        }
+    }
+    val letterIndex: Map<Char, Int> = remember(rows) {
+        buildMap {
+            rows.forEachIndexed { i, row ->
+                val letter = when (row) {
+                    is DrawerRow.Header -> row.letter
+                    is DrawerRow.App -> sectionLetter(row.app.label)
+                }
+                putIfAbsent(letter, i)
+            }
         }
     }
 
-    LaunchedEffect(filtered, query, autoLaunchSingle) {
-        if (autoLaunchSingle && query.length >= 2 && filtered.size == 1 && !filtered[0].isFrozen) {
-            onLaunchApp(filtered[0])
+    LaunchedEffect(results, autoLaunchSingle) {
+        if (autoLaunchSingle && query.trim().length >= 2 && results.size == 1 && !results[0].isFrozen) {
+            onLaunchApp(results[0])
             query = ""
         }
     }
 
-    var drawerGrid by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
+    fun jumpTo(letter: Char) {
+        val idx = letterIndex[letter] ?: return
+        scope.launch { if (useGrid) gridState.scrollToItem(idx) else listState.scrollToItem(idx) }
+    }
+
+    // Pulling down while the list is already at the top closes the drawer.
+    val closeThreshold = with(LocalDensity.current) { 96.dp.toPx() }
+    val pullToClose = remember(onClose, closeThreshold) {
+        object : NestedScrollConnection {
+            var pulled = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y > 0f) {
+                    pulled += available.y
+                } else if (consumed.y != 0f) {
+                    pulled = 0f
+                }
+                return Offset.Zero
+            }
+
+            // Close on release, not mid-drag, so the rest of the gesture can't land on home.
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                val close = pulled > closeThreshold
+                pulled = 0f
+                if (close) onClose()
+                return Velocity.Zero
+            }
+        }
+    }
+
+    fun launchFirst() {
+        val first = (if (searching) results else sections.flatMap { it.apps }).firstOrNull { !it.isFrozen }
+        if (first != null) {
+            onLaunchApp(first)
+            query = ""
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (focusActive) Color(0xF8000000) else Color(0xEB050505))
+            .background(DrawerBackground)
             .statusBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 12.dp)
+            .navigationBarsPadding()
+            .imePadding()
+            .testTag("drawer")
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = {
-                    Text(
-                        "Search apps...",
-                        fontSize = 14.sp,
-                        color = TextDim
-                    )
-                },
-                singleLine = true,
-                leadingIcon = {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = null,
-                        tint = PureWhite
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = { if (query.isNotEmpty()) query = "" else onClose() }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close", tint = TextDim)
-                    }
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(
-                    onGo = {
-                        if (filtered.isNotEmpty() && !filtered[0].isFrozen) {
-                            onLaunchApp(filtered[0])
-                        }
-                    }
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = PureWhite,
-                    unfocusedBorderColor = LocalTileBorder.current,
-                    focusedContainerColor = LocalTileSurface.current,
-                    unfocusedContainerColor = LocalTileSurface.current,
-                    focusedTextColor = PureWhite,
-                    unfocusedTextColor = PureWhite
-                ),
-                shape = RoundedCornerShape(16.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 6.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (searching) "${results.size} results" else "${sections.sumOf { it.apps.size }} apps",
+                fontSize = 13.sp,
+                color = TextDim,
                 modifier = Modifier.weight(1f)
             )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        if (!focusActive) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MiniModePill(if (drawerGrid) "GRID" else "LIST", true, { drawerGrid = !drawerGrid }, Modifier.weight(1f))
-                MiniModePill("FROZEN", showFrozen, onToggleShowFrozen, Modifier.weight(1f))
-                MiniModePill("1-MATCH", autoLaunchSingle, onToggleAutoLaunch, Modifier.weight(1f))
-            }
-
-            Spacer(Modifier.height(10.dp))
-        }
-
-        if (focusActive) {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(filtered, key = { it.packageName }) { app ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onLaunchApp(app) }
-                            .padding(horizontal = 10.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            app.label,
-                            fontSize = 15.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = PureWhite,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+            if (!focusActive) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("drawer_menu")) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "Drawer options", tint = PureWhite)
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (grid) "Show as list" else "Show as grid") },
+                            onClick = { grid = !grid; menuOpen = false }
                         )
+                        MenuCheck("Show paused apps", showFrozen) { onToggleShowFrozen() }
+                        MenuCheck("Open single search match", autoLaunchSingle) { onToggleAutoLaunch() }
                     }
                 }
             }
-        } else if (drawerGrid) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 18.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                gridItems(filtered, key = { it.packageName }) { app ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .combinedClickable(
-                                onClick = { onLaunchApp(app) },
-                                onLongClick = { onLongPressApp(app) }
-                            )
-                            .padding(vertical = 6.dp, horizontal = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        if (app.icon != null) {
-                            Box {
-                                Image(
-                                    bitmap = app.icon,
-                                    contentDescription = app.label,
-                                    colorFilter = if (grayscaleOn) MonoFilter else null,
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(RoundedCornerShape(13.dp))
-                                )
-                                if (mindfulApps.contains(app.packageName)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(PureWhite)
-                                            .align(Alignment.TopEnd)
-                                    )
-                                }
+        }
+
+        // No stretch overscroll: leftover pull at the top must reach pullToClose.
+        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            val listModifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .nestedScroll(pullToClose)
+                .testTag("drawer_list")
+
+            if (useGrid) {
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(4),
+                    contentPadding = PaddingValues(start = 12.dp, end = 4.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = listModifier
+                ) {
+                    rows.forEach { row ->
+                        when (row) {
+                            is DrawerRow.Header -> item(key = row.key, span = { GridItemSpan(maxLineSpan) }) {
+                                SectionHeader(row.letter)
                             }
-                            Spacer(Modifier.height(6.dp))
+                            is DrawerRow.App -> item(key = row.key) {
+                                GridApp(row.app, grayscaleOn, mindfulApps, usageMinutesMap, onLaunchApp, onLongPressApp)
+                            }
                         }
-                        Text(
-                            app.label,
-                            fontSize = 11.sp,
-                            color = if (app.isFrozen) TextDim else PureWhite,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val usedMins = usageMinutesMap[app.packageName] ?: 0
-                        if (usedMins > 0) {
-                            Text(
-                                "${usedMins}m",
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextDim,
-                                maxLines = 1
-                            )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(start = 12.dp, end = 4.dp, bottom = 12.dp),
+                    modifier = listModifier
+                ) {
+                    rows.forEach { row ->
+                        when (row) {
+                            is DrawerRow.Header -> item(key = row.key) { SectionHeader(row.letter) }
+                            is DrawerRow.App -> item(key = row.key) {
+                                val pkg = row.app.packageName
+                                ListApp(
+                                    app = row.app,
+                                    grayscaleOn = grayscaleOn,
+                                    showIcon = !focusActive,
+                                    usageMinutesMap = usageMinutesMap,
+                                    badges = buildList {
+                                        if (pkg in mindfulApps) add("MINDFUL")
+                                        if (pkg in pinnedPackages) add("PIN")
+                                        if (pkg in kidsApps) add("KIDS")
+                                        if (pkg in focusDistractions) add("FOCUS")
+                                    },
+                                    onLaunchApp = onLaunchApp,
+                                    onLongPressApp = onLongPressApp
+                                )
+                            }
                         }
                     }
                 }
             }
+
+            if (!searching && sections.size > 1) {
+                LetterScrubber(sections.map { it.letter }, ::jumpTo)
+            }
+        }
+        }
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Search apps", fontSize = 15.sp, color = TextDim) },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = TextDim) },
+            trailingIcon = {
+                IconButton(onClick = { if (query.isNotEmpty()) query = "" else onClose() }) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = if (query.isNotEmpty()) "Clear search" else "Close drawer",
+                        tint = TextDim
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { launchFirst() }),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = SearchSurface,
+                unfocusedContainerColor = SearchSurface,
+                focusedTextColor = PureWhite,
+                unfocusedTextColor = PureWhite,
+                cursorColor = PureWhite
+            ),
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .testTag("drawer_search")
+        )
+    }
+}
+
+@Composable
+private fun MenuCheck(label: String, checked: Boolean, onToggle: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        trailingIcon = {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = null,
+                colors = CheckboxDefaults.colors(checkedColor = PureWhite, checkmarkColor = Color.Black)
+            )
+        },
+        onClick = onToggle
+    )
+}
+
+@Composable
+private fun SectionHeader(letter: Char) {
+    Text(
+        letter.toString(),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = TextDim,
+        modifier = Modifier
+            .padding(start = 8.dp, top = 14.dp, bottom = 4.dp)
+            .testTag("header_$letter")
+    )
+}
+
+@Composable
+private fun AppIcon(app: AppEntry, size: Int, grayscaleOn: Boolean) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size.dp)) {
+        val icon = app.icon
+        if (icon != null) {
+            Image(
+                bitmap = icon,
+                contentDescription = null,
+                colorFilter = if (grayscaleOn || app.isFrozen) MonoFilter else null,
+                modifier = Modifier.size(size.dp)
+            )
         } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
-                modifier = Modifier.weight(1f)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(size.dp).clip(CircleShape).background(Color(0xFF2A2A2A))
             ) {
-                items(filtered, key = { it.packageName }) { app ->
-                    val isPinned = pinnedPackages.contains(app.packageName)
-                    val isFocus = focusDistractions.contains(app.packageName)
-                    val isKids = kidsApps.contains(app.packageName)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .combinedClickable(
-                                onClick = { onLaunchApp(app) },
-                                onLongClick = { onLongPressApp(app) }
-                            )
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (app.icon != null) {
-                            Image(
-                                bitmap = app.icon,
-                                contentDescription = null,
-                                colorFilter = if (grayscaleOn) MonoFilter else null,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                            )
-                            Spacer(Modifier.width(12.dp))
-                        }
-                        Text(
-                            app.label,
-                            fontSize = 15.sp,
-                            color = if (app.isFrozen) TextDim else PureWhite,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            val usedMins = usageMinutesMap[app.packageName] ?: 0
-                            if (usedMins > 0) {
-                                Text(
-                                    "${usedMins}m",
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = TextDim
-                                )
-                            }
-                            if (mindfulApps.contains(app.packageName)) MonoBadge("MINDFUL")
-                            if (isPinned) MonoBadge("PIN")
-                            if (isKids) MonoBadge("KIDS")
-                            if (isFocus) MonoBadge("FOCUS")
-                            if (app.isFrozen) MonoBadge("FROZEN")
-                        }
-                    }
-                }
+                Text(sectionLetter(app.label).toString(), color = PureWhite, fontSize = (size / 2.4).sp)
+            }
+        }
+        if (app.isFrozen) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size((size * 0.42).dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF3A3A3A))
+            ) {
+                Icon(
+                    Icons.Rounded.Pause,
+                    contentDescription = "Paused",
+                    tint = PureWhite,
+                    modifier = Modifier.size((size * 0.3).dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GridApp(
+    app: AppEntry,
+    grayscaleOn: Boolean,
+    mindfulApps: Set<String>,
+    usageMinutesMap: Map<String, Int>,
+    onLaunchApp: (AppEntry) -> Unit,
+    onLongPressApp: (AppEntry) -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .combinedClickable(onClick = { onLaunchApp(app) }, onLongClick = { onLongPressApp(app) })
+            .alpha(if (app.isFrozen) 0.45f else 1f)
+            .padding(vertical = 8.dp, horizontal = 2.dp)
+            .testTag("app_${app.packageName}")
+    ) {
+        Box {
+            AppIcon(app, 52, grayscaleOn)
+            if (app.packageName in mindfulApps) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(PureWhite).align(Alignment.TopEnd))
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(app.label, fontSize = 12.sp, color = PureWhite, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val mins = usageMinutesMap[app.packageName] ?: 0
+        if (mins > 0) Text("${mins}m", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = TextDim, maxLines = 1)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ListApp(
+    app: AppEntry,
+    grayscaleOn: Boolean,
+    showIcon: Boolean,
+    usageMinutesMap: Map<String, Int>,
+    badges: List<String>,
+    onLaunchApp: (AppEntry) -> Unit,
+    onLongPressApp: (AppEntry) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = { onLaunchApp(app) }, onLongClick = { onLongPressApp(app) })
+            .alpha(if (app.isFrozen) 0.45f else 1f)
+            .padding(horizontal = 8.dp, vertical = 10.dp)
+            .testTag("app_${app.packageName}")
+    ) {
+        if (showIcon) {
+            AppIcon(app, 40, grayscaleOn)
+            Spacer(Modifier.width(14.dp))
+        }
+        Text(
+            app.label,
+            fontSize = 16.sp,
+            color = PureWhite,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        val mins = usageMinutesMap[app.packageName] ?: 0
+        if (mins > 0) Text("${mins}m", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = TextDim)
+        badges.forEach {
+            Spacer(Modifier.width(4.dp))
+            MonoBadge(it)
+        }
+    }
+}
+
+@Composable
+private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
+    var height by remember { mutableIntStateOf(1) }
+    fun letterAt(y: Float): Char =
+        letters[(y / height * letters.size).toInt().coerceIn(0, letters.lastIndex)]
+    Column(
+        verticalArrangement = Arrangement.SpaceEvenly,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .padding(vertical = 8.dp)
+            .onSizeChanged { height = it.height.coerceAtLeast(1) }
+            .pointerInput(letters) { detectTapGestures { onLetter(letterAt(it.y)) } }
+            .pointerInput(letters) {
+                detectVerticalDragGestures { change, _ -> onLetter(letterAt(change.position.y)) }
+            }
+            .testTag("scrubber")
+    ) {
+        letters.forEach { letter ->
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).testTag("scrubber_$letter")) {
+                Text(letter.toString(), fontSize = 11.sp, color = TextDim, maxLines = 1)
             }
         }
     }

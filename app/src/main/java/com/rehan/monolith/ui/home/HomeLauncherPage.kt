@@ -68,6 +68,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -162,9 +169,34 @@ fun HomeLauncherPage(
     val pinnedEntries = remember(pinnedPackages, appMap) { pinnedPackages.mapNotNull { appMap[it] } }
     val horizontalAlign = if (homeConfig.alignCenter) Alignment.CenterHorizontally else Alignment.Start
 
+    // The home grid claims vertical drags, so leftover (unscrollable) drag is what opens the drawer or shelf.
+    val swipeThreshold = with(LocalDensity.current) { 48.dp.toPx() }
+    val currentOpenDrawer by rememberUpdatedState(onOpenDrawer)
+    val currentOpenShelf by rememberUpdatedState(onOpenShizukuShelf)
+    val homeSwipe = remember(swipeThreshold) {
+        object : NestedScrollConnection {
+            var leftover = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                leftover += available.y
+                when {
+                    leftover < -swipeThreshold -> { leftover = 0f; currentOpenDrawer() }
+                    leftover > swipeThreshold -> { leftover = 0f; currentOpenShelf() }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                leftover = 0f
+                return Velocity.Zero
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .nestedScroll(homeSwipe)
             .pointerInput(Unit) {
                 var totalDrag = 0f
                 detectVerticalDragGestures(

@@ -26,6 +26,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -592,13 +593,8 @@ fun MonolithLauncher(
 
         AnimatedVisibility(
             visible = drawerOpen,
-            enter = slideInVertically(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ) { it } + fadeIn(tween(180)),
-            exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(150))
+            enter = slideInVertically(tween(250, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(200)),
+            exit = slideOutVertically(tween(200)) { it / 3 } + fadeOut(tween(180))
         ) {
             AppDrawerOverlay(
                 apps = apps,
