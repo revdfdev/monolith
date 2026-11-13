@@ -103,6 +103,7 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MonolithLauncher(
+    viewModel: LauncherViewModel,
     shizuku: ShizukuManager,
     appRepository: AppRepository,
     prefs: LauncherPrefs,
@@ -118,24 +119,25 @@ fun MonolithLauncher(
     val pagerState = rememberPagerState(initialPage = 1) { 2 }
     var drawerOpen by remember { mutableStateOf(false) }
 
-    val apps by appRepository.apps.collectAsState()
-    var pinnedPackages by remember { mutableStateOf(prefs.getPinnedPackages()) }
-    var focusDistractions by remember { mutableStateOf(prefs.getFocusDistractions()) }
-    var kidsApps by remember { mutableStateOf(prefs.getKidsApps()) }
-    var kidsModeActive by remember { mutableStateOf(prefs.isKidsModeActive()) }
-    var hasParentPin by remember { mutableStateOf(prefs.hasParentPin()) }
-    var quickNote by remember { mutableStateOf(prefs.getQuickNote()) }
+    val apps by viewModel.apps.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val pinnedPackages = settings.pinnedPackages
+    val focusDistractions = settings.focusDistractions
+    val kidsApps = settings.kidsApps
+    val kidsModeActive = settings.kidsModeActive
+    val hasParentPin = settings.parentPinHash != null
+    val quickNote = settings.quickNote
     var showNoteDialog by remember { mutableStateOf(false) }
-    var homeConfig by remember { mutableStateOf(prefs.getHomeConfig()) }
-    var centerWidgets by remember { mutableStateOf(prefs.getCenterWidgets()) }
-    var customWidgets by remember { mutableStateOf(prefs.getCustomWidgets()) }
+    val homeConfig = settings.home
+    val centerWidgets = settings.centerWidgets
+    val customWidgets = settings.customWidgets
     var showCustomizer by remember { mutableStateOf(false) }
     var showAppPicker by remember { mutableStateOf(false) }
     var showWidgetManager by remember { mutableStateOf(false) }
-    var leftDockPkg by remember { mutableStateOf(prefs.getLeftDockPkg()) }
-    var rightDockPkg by remember { mutableStateOf(prefs.getRightDockPkg()) }
+    val leftDockPkg = settings.leftDockPkg
+    val rightDockPkg = settings.rightDockPkg
     var dockPickerTarget by remember { mutableStateOf<String?>(null) }
-    var systemWidgetIds by remember { mutableStateOf(prefs.getSystemWidgetIds()) }
+    val systemWidgetIds = settings.systemWidgetIds
 
     val widgetConfigureLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -143,7 +145,6 @@ fun MonolithLauncher(
         val id = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
         if (result.resultCode == android.app.Activity.RESULT_OK && id != -1) {
             prefs.addSystemWidgetId(id)
-            systemWidgetIds = prefs.getSystemWidgetIds()
         } else if (id != -1) {
             appWidgetHost.deleteAppWidgetId(id)
         }
@@ -164,11 +165,9 @@ fun MonolithLauncher(
                     widgetConfigureLauncher.launch(cfgIntent)
                 } catch (_: Throwable) {
                     prefs.addSystemWidgetId(id)
-                    systemWidgetIds = prefs.getSystemWidgetIds()
                 }
             } else {
                 prefs.addSystemWidgetId(id)
-                systemWidgetIds = prefs.getSystemWidgetIds()
             }
         } else if (id != -1) {
             appWidgetHost.deleteAppWidgetId(id)
@@ -176,19 +175,19 @@ fun MonolithLauncher(
     }
     var showSystemWidgetPicker by remember { mutableStateOf(false) }
 
-    var focusActive by remember { mutableStateOf(prefs.isFocusModeActive()) }
+    val focusActive = settings.focusModeActive
     var grayscaleOn by remember { mutableStateOf(false) }
     var stayAwakeOn by remember { mutableStateOf(false) }
     var lockscreenNotifMode by remember { mutableStateOf("QUIET") }
     var ambientDisplayOn by remember { mutableStateOf(prefs.isAmbientDisplayEnabled()) }
     var installersLocked by remember { mutableStateOf(false) }
-    var showFrozen by remember { mutableStateOf(prefs.isShowFrozenInDrawer()) }
-    var autoLaunchSingle by remember { mutableStateOf(prefs.isAutoLaunchSingleMatch()) }
+    val showFrozen = settings.showFrozenInDrawer
+    val autoLaunchSingle = settings.autoLaunchSingleMatch
     var selectedAppForSheet by remember { mutableStateOf<AppEntry?>(null) }
     var showKidsAppsPicker by remember { mutableStateOf(false) }
     var enterKidsAfterPick by remember { mutableStateOf(false) }
-    var dailyLimits by remember { mutableStateOf(prefs.getDailyLimits()) }
-    var mindfulPauseApps by remember { mutableStateOf(prefs.getMindfulPauseApps()) }
+    val dailyLimits = settings.dailyLimits
+    val mindfulPauseApps = settings.mindfulPauseApps
     var usageMinutesMap by remember { mutableStateOf(readTodayAppUsageMinutes(context)) }
     var tempUnlockedLimits by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingMindfulPkg by remember { mutableStateOf<String?>(null) }
@@ -227,7 +226,6 @@ fun MonolithLauncher(
             val seeded = loaded.filter { !it.isSystem && !it.isFrozen }.take(4).map { it.packageName }
             if (seeded.isNotEmpty()) {
                 prefs.setPinnedPackages(seeded)
-                pinnedPackages = seeded
             }
             prefs.markDefaultsSeeded()
         }
@@ -301,7 +299,6 @@ fun MonolithLauncher(
             if (shizukuStatus.serviceBound) {
                 shizuku.setInstallersLocked(true)
             }
-            kidsModeActive = true
             prefs.setKidsModeActive(true)
             drawerOpen = false
         }
@@ -312,7 +309,6 @@ fun MonolithLauncher(
             if (shizukuStatus.serviceBound) {
                 shizuku.setInstallersLocked(false)
             }
-            kidsModeActive = false
             prefs.setKidsModeActive(false)
             reloadAll()
             toast("Kids Mode OFF")
@@ -338,7 +334,6 @@ fun MonolithLauncher(
                     shizuku.unfreezePackage(pkg)
                 }
             }
-            focusActive = next
             prefs.setFocusModeActive(next)
             reloadAll()
             toast(if (next) "Focus ON (${focusDistractions.size} frozen + Mono)" else "Focus OFF")
@@ -526,7 +521,6 @@ fun MonolithLauncher(
                     onToggleFocus = { toggleFocusMode() },
                     onSaveParentPin = { newPin ->
                         if (prefs.setParentPin(newPin)) {
-                            hasParentPin = true
                             toast("Parent PIN saved")
                         } else {
                             toast("PIN must be at least 4 digits")
@@ -635,7 +629,6 @@ fun MonolithLauncher(
                     onRemoveSystemWidget = { wid ->
                         appWidgetHost.deleteAppWidgetId(wid)
                         prefs.removeSystemWidgetId(wid)
-                        systemWidgetIds = prefs.getSystemWidgetIds()
                     },
                     onExecShell = { cmd -> shizuku.exec(cmd) },
                     onTrimCaches = {
@@ -714,12 +707,10 @@ fun MonolithLauncher(
                 shizukuBound = shizukuStatus.serviceBound,
                 onClose = { drawerOpen = false },
                 onToggleShowFrozen = {
-                    showFrozen = !showFrozen
-                    prefs.setShowFrozenInDrawer(showFrozen)
+                    prefs.setShowFrozenInDrawer(!showFrozen)
                 },
                 onToggleAutoLaunch = {
-                    autoLaunchSingle = !autoLaunchSingle
-                    prefs.setAutoLaunchSingleMatch(autoLaunchSingle)
+                    prefs.setAutoLaunchSingleMatch(!autoLaunchSingle)
                 },
                 onLaunchApp = { entry ->
                     if (entry.isFrozen) {
@@ -756,8 +747,7 @@ fun MonolithLauncher(
             confirmButton = {
                 Button(
                     onClick = {
-                        quickNote = noteDraft.trim()
-                        prefs.setQuickNote(quickNote)
+                        prefs.setQuickNote(noteDraft.trim())
                         showNoteDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack)
@@ -807,7 +797,6 @@ fun MonolithLauncher(
                     label = if (isPinned) "Unpin from Home" else "Pin to Home"
                 ) {
                     prefs.togglePinned(sheetApp.packageName)
-                    pinnedPackages = prefs.getPinnedPackages()
                     selectedAppForSheet = null
                 }
 
@@ -816,7 +805,6 @@ fun MonolithLauncher(
                     label = if (isKids) "Remove from Kids Mode" else "Add to Kids Mode"
                 ) {
                     prefs.toggleKidsApp(sheetApp.packageName)
-                    kidsApps = prefs.getKidsApps()
                     selectedAppForSheet = null
                 }
 
@@ -825,7 +813,6 @@ fun MonolithLauncher(
                     label = if (isDistraction) "Remove from Focus Freeze" else "Add to Focus Freeze"
                 ) {
                     prefs.toggleFocusDistraction(sheetApp.packageName)
-                    focusDistractions = prefs.getFocusDistractions()
                     selectedAppForSheet = null
                 }
 
@@ -864,7 +851,6 @@ fun MonolithLauncher(
                     label = if (isMindful) "Mindful Pause (5s): ON" else "Mindful Pause (5s): OFF"
                 ) {
                     prefs.toggleMindfulPause(sheetApp.packageName)
-                    mindfulPauseApps = prefs.getMindfulPauseApps()
                     selectedAppForSheet = null
                 }
 
@@ -885,7 +871,6 @@ fun MonolithLauncher(
                             border = BorderStroke(1.dp, if (active) PureWhite else BorderHairline),
                             modifier = Modifier.clickable {
                                 prefs.setDailyLimit(sheetApp.packageName, mins)
-                                dailyLimits = prefs.getDailyLimits()
                             }
                         ) {
                             Text(
@@ -931,7 +916,6 @@ fun MonolithLauncher(
         HomeCustomizerSheet(
             config = homeConfig,
             onUpdate = { updated ->
-                homeConfig = updated
                 prefs.saveHomeConfig(updated)
             },
             onPickHomeApps = {
@@ -951,18 +935,13 @@ fun MonolithLauncher(
             activeWidgets = centerWidgets,
             customWidgets = customWidgets,
             onSaveWidgets = { updated ->
-                centerWidgets = updated
                 prefs.saveCenterWidgets(updated)
             },
             onAddCustomWidget = { title, cmd ->
                 prefs.addCustomWidget(title, cmd)
-                customWidgets = prefs.getCustomWidgets()
-                centerWidgets = prefs.getCenterWidgets()
             },
             onRemoveCustomWidget = { id ->
                 prefs.removeCustomWidget(id)
-                customWidgets = prefs.getCustomWidgets()
-                centerWidgets = prefs.getCenterWidgets()
             },
             onAddSystemWidget = {
                 showWidgetManager = false
@@ -993,11 +972,9 @@ fun MonolithLauncher(
                             widgetConfigureLauncher.launch(cfgIntent)
                         } catch (_: Throwable) {
                             prefs.addSystemWidgetId(id)
-                            systemWidgetIds = prefs.getSystemWidgetIds()
                         }
                     } else {
                         prefs.addSystemWidgetId(id)
-                        systemWidgetIds = prefs.getSystemWidgetIds()
                     }
                 } else {
                     val bindIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
@@ -1025,20 +1002,16 @@ fun MonolithLauncher(
             onSelect = { pkg ->
                 if (dockTarget == "LEFT") {
                     prefs.setLeftDockPkg(pkg)
-                    leftDockPkg = pkg
                 } else {
                     prefs.setRightDockPkg(pkg)
-                    rightDockPkg = pkg
                 }
                 dockPickerTarget = null
             },
             onResetDefault = {
                 if (dockTarget == "LEFT") {
                     prefs.setLeftDockPkg(null)
-                    leftDockPkg = null
                 } else {
                     prefs.setRightDockPkg(null)
-                    rightDockPkg = null
                 }
                 dockPickerTarget = null
             },
@@ -1054,7 +1027,6 @@ fun MonolithLauncher(
             selectedPackages = pinnedPackages.toSet(),
             onTogglePackage = { pkg ->
                 prefs.togglePinned(pkg)
-                pinnedPackages = prefs.getPinnedPackages()
             },
             onConfirm = { showAppPicker = false },
             onDismiss = { showAppPicker = false }
@@ -1069,7 +1041,6 @@ fun MonolithLauncher(
             selectedPackages = kidsApps,
             onTogglePackage = { pkg ->
                 prefs.toggleKidsApp(pkg)
-                kidsApps = prefs.getKidsApps()
             },
             onConfirm = {
                 showKidsAppsPicker = false

@@ -6,7 +6,9 @@ import com.rehan.monolith.data.LauncherPrefs
 import com.rehan.monolith.data.loadInstalledApps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import com.rehan.monolith.ui.home.LauncherViewModel
 import kotlinx.coroutines.SupervisorJob
+import org.koin.core.module.dsl.viewModelOf
 import com.rehan.monolith.shizuku.ShizukuManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -25,6 +27,7 @@ val appModule = module {
             loader = { frozen, emit -> loadInstalledApps(context, frozen, emit) }
         ).apply { registerPackageCallback(context) }
     }
+    viewModelOf(::LauncherViewModel)
 }
 
 class MonolithApp : Application() {

@@ -27,11 +27,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import org.koin.android.ext.android.inject
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class MainActivity : ComponentActivity() {
     private val shizuku: ShizukuManager by inject()
     private val prefs: LauncherPrefs by inject()
     private val appRepository: AppRepository by inject()
+    private val viewModel: LauncherViewModel by viewModel()
     private lateinit var appWidgetManager: AppWidgetManager
     private lateinit var appWidgetHost: AppWidgetHost
 
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
                 )
             ) {
                 MonolithLauncher(
+                    viewModel = viewModel,
                     shizuku = shizuku,
                     appRepository = appRepository,
                     prefs = prefs,
