@@ -24,13 +24,6 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 
-data class AppEntry(
-    val packageName: String,
-    val label: String,
-    val isFrozen: Boolean,
-    val isSystem: Boolean,
-    val icon: ImageBitmap?
-)
 
 internal val PureBlack = Color(0xFF000000)
 internal val PureWhite = Color(0xFFFFFFFF)

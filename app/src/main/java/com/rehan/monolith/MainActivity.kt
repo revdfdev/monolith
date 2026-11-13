@@ -31,6 +31,7 @@ import org.koin.android.ext.android.inject
 class MainActivity : ComponentActivity() {
     private val shizuku: ShizukuManager by inject()
     private val prefs: LauncherPrefs by inject()
+    private val appRepository: AppRepository by inject()
     private lateinit var appWidgetManager: AppWidgetManager
     private lateinit var appWidgetHost: AppWidgetHost
 
@@ -64,6 +65,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 MonolithLauncher(
                     shizuku = shizuku,
+                    appRepository = appRepository,
                     prefs = prefs,
                     appWidgetManager = appWidgetManager,
                     appWidgetHost = appWidgetHost,
@@ -107,5 +109,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         shizuku.refreshAndBind()
+        appRepository.refresh()
     }
 }

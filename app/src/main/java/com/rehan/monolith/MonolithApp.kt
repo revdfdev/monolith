@@ -1,7 +1,12 @@
 package com.rehan.monolith
 
 import android.app.Application
+import com.rehan.monolith.data.AppRepository
 import com.rehan.monolith.data.LauncherPrefs
+import com.rehan.monolith.data.loadInstalledApps
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.rehan.monolith.shizuku.ShizukuManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -10,6 +15,16 @@ import org.koin.dsl.module
 val appModule = module {
     single { LauncherPrefs(get()) }
     single { ShizukuManager().apply { init() } }
+    single {
+        val shizuku = get<ShizukuManager>()
+        val context = androidContext()
+        AppRepository(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+            dispatcher = Dispatchers.Default,
+            frozenPackages = { if (shizuku.status.value.serviceBound) shizuku.getFrozenPackages() else emptySet() },
+            loader = { frozen, emit -> loadInstalledApps(context, frozen, emit) }
+        ).apply { registerPackageCallback(context) }
+    }
 }
 
 class MonolithApp : Application() {

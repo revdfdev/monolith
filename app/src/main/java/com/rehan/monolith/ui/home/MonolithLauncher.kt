@@ -104,6 +104,7 @@ import java.io.File
 @Composable
 fun MonolithLauncher(
     shizuku: ShizukuManager,
+    appRepository: AppRepository,
     prefs: LauncherPrefs,
     appWidgetManager: AppWidgetManager,
     appWidgetHost: AppWidgetHost,
@@ -117,7 +118,7 @@ fun MonolithLauncher(
     val pagerState = rememberPagerState(initialPage = 1) { 2 }
     var drawerOpen by remember { mutableStateOf(false) }
 
-    var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    val apps by appRepository.apps.collectAsState()
     var pinnedPackages by remember { mutableStateOf(prefs.getPinnedPackages()) }
     var focusDistractions by remember { mutableStateOf(prefs.getFocusDistractions()) }
     var kidsApps by remember { mutableStateOf(prefs.getKidsApps()) }
@@ -207,30 +208,7 @@ fun MonolithLauncher(
 
     fun reloadAll() {
         scope.launch {
-            val frozenSet = if (shizukuStatus.serviceBound) shizuku.getFrozenPackages() else emptySet()
-            loadInstalledApps(context, frozenSet) { loaded ->
-                apps = loaded
-                if (!prefs.hasSeededDefaults() && pinnedPackages.isEmpty() && loaded.isNotEmpty()) {
-                    val preferred = listOf(
-                        "com.brave.browser",
-                        "com.whatsapp",
-                        "md.obsidian",
-                        "com.anthropic.claude",
-                        "com.openai.chatgpt",
-                        "com.github.android",
-                        "com.phonepe.app"
-                    )
-                    val available = loaded.map { it.packageName }.toSet()
-                    val seeded = preferred.filter { available.contains(it) }.ifEmpty {
-                        loaded.filter { !it.isSystem && !it.isFrozen }.take(5).map { it.packageName }
-                    }
-                    if (seeded.isNotEmpty()) {
-                        prefs.setPinnedPackages(seeded)
-                        pinnedPackages = seeded
-                    }
-                    prefs.markDefaultsSeeded()
-                }
-            }
+            appRepository.refresh()
             usageMinutesMap = readTodayAppUsageMinutes(context)
             if (shizukuStatus.serviceBound) {
                 grayscaleOn = shizuku.isGrayscaleEnabled()
@@ -238,6 +216,34 @@ fun MonolithLauncher(
                 ambientDisplayOn = shizuku.isDozeAlwaysOn()
                 lockscreenNotifMode = shizuku.getLockscreenNotificationMode()
             }
+        }
+    }
+
+    LaunchedEffect(shizukuStatus.serviceBound) {
+        appRepository.refresh()
+    }
+
+    LaunchedEffect(apps) {
+        val loaded = apps
+        if (!prefs.hasSeededDefaults() && pinnedPackages.isEmpty() && loaded.isNotEmpty()) {
+            val preferred = listOf(
+                "com.brave.browser",
+                "com.whatsapp",
+                "md.obsidian",
+                "com.anthropic.claude",
+                "com.openai.chatgpt",
+                "com.github.android",
+                "com.phonepe.app"
+            )
+            val available = loaded.map { it.packageName }.toSet()
+            val seeded = preferred.filter { available.contains(it) }.ifEmpty {
+                loaded.filter { !it.isSystem && !it.isFrozen }.take(5).map { it.packageName }
+            }
+            if (seeded.isNotEmpty()) {
+                prefs.setPinnedPackages(seeded)
+                pinnedPackages = seeded
+            }
+            prefs.markDefaultsSeeded()
         }
     }
 
