@@ -67,7 +67,12 @@ internal suspend fun loadInstalledApps(
         try {
             val appInfo = pm.getApplicationInfo(pkg, 0)
             val isSys = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            if (!isSys) {
+            // Only list a paused app if it has a screen to open once resumed.
+            val launchable = pm.queryIntentActivities(
+                Intent(mainIntent).setPackage(pkg),
+                PackageManager.MATCH_DISABLED_COMPONENTS
+            ).isNotEmpty()
+            if (!isSys && launchable) {
                 val label = pm.getApplicationLabel(appInfo).toString().ifBlank { pkg }
                 val cachedIcon = appIconCache[pkg]
                 fastEntries.add(AppEntry(pkg, label, true, false, cachedIcon))
