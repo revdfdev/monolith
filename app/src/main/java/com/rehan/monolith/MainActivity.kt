@@ -26,10 +26,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
-    private lateinit var shizuku: ShizukuManager
-    private lateinit var prefs: LauncherPrefs
+    private val shizuku: ShizukuManager by inject()
+    private val prefs: LauncherPrefs by inject()
     private lateinit var appWidgetManager: AppWidgetManager
     private lateinit var appWidgetHost: AppWidgetHost
 
@@ -45,8 +46,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-        shizuku = ShizukuManager().apply { init() }
-        prefs = LauncherPrefs(this)
         appWidgetManager = AppWidgetManager.getInstance(this)
         appWidgetHost = AppWidgetHost(this, 1024)
 
@@ -108,10 +107,5 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         shizuku.refreshAndBind()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        shizuku.destroy()
     }
 }

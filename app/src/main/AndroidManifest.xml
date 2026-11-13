@@ -12,6 +12,7 @@
         tools:ignore="ProtectedPermissions" />
 
     <application
+        android:name=".MonolithApp"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:label="Monolith"

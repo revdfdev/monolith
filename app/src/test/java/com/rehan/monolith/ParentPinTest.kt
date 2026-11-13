@@ -25,6 +25,9 @@ class ParentPinTest {
         context.getSharedPreferences("monolith_prefs", Context.MODE_PRIVATE).edit().clear().commit()
     }
 
+    @org.junit.After
+    fun tearDown() = org.koin.core.context.stopKoin()
+
     private fun rawPrefs() = context.getSharedPreferences("monolith_prefs", Context.MODE_PRIVATE)
 
     @Test
