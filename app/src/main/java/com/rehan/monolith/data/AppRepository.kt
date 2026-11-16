@@ -46,15 +46,27 @@ class AppRepository(
         }
     }
 
+    private var callback: LauncherApps.Callback? = null
+
     fun registerPackageCallback(context: Context) {
         val launcherApps = context.getSystemService(LauncherApps::class.java) ?: return
-        launcherApps.registerCallback(object : LauncherApps.Callback() {
+        if (callback != null) return
+        val cb = object : LauncherApps.Callback() {
             override fun onPackageAdded(packageName: String, user: UserHandle) = onPackagesChanged()
             override fun onPackageRemoved(packageName: String, user: UserHandle) = onPackagesChanged()
             override fun onPackageChanged(packageName: String, user: UserHandle) = onPackagesChanged()
             override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = onPackagesChanged()
             override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = onPackagesChanged()
-        })
+        }
+        callback = cb
+        launcherApps.registerCallback(cb)
+    }
+
+    fun unregisterPackageCallback(context: Context) {
+        val launcherApps = context.getSystemService(LauncherApps::class.java) ?: return
+        val cb = callback ?: return
+        launcherApps.unregisterCallback(cb)
+        callback = null
     }
 
     companion object {

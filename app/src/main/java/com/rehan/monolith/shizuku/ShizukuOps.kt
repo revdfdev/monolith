@@ -21,4 +21,6 @@ interface ShizukuOps {
     suspend fun trimAllCaches(): ShellResult
     suspend fun setDnd(on: Boolean): ShellResult
     suspend fun allowUsageStats(): ShellResult
+    suspend fun installApk(apkPath: String, flags: List<String> = listOf("-r")): ShellResult
+    suspend fun installSplitApks(apkPaths: List<String>, flags: List<String> = listOf("-r")): ShellResult
 }

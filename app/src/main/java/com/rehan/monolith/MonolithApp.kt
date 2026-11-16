@@ -4,6 +4,7 @@ import android.app.Application
 import com.rehan.monolith.data.AppRepository
 import com.rehan.monolith.data.LauncherPrefs
 import com.rehan.monolith.data.loadInstalledApps
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import com.rehan.monolith.ui.home.LauncherViewModel
@@ -20,6 +21,7 @@ import org.koin.dsl.module
 
 val appModule = module {
     single { LauncherPrefs(get()) }
+    single<CoroutineDispatcher> { Dispatchers.IO }
     single(createdAtStart = true) { ShizukuManager().apply { init() } } bind ShizukuOps::class
     single {
         val pm = androidContext().packageManager
@@ -43,9 +45,11 @@ val appModule = module {
 class MonolithApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        startKoin {
-            androidContext(this@MonolithApp)
-            modules(appModule)
+        if (org.koin.core.context.GlobalContext.getOrNull() == null) {
+            startKoin {
+                androidContext(this@MonolithApp)
+                modules(appModule)
+            }
         }
     }
 }

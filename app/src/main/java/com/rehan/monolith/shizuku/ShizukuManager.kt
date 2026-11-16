@@ -218,11 +218,29 @@ class ShizukuManager : ShizukuOps {
 
     suspend fun uninstallPackage(pkg: String): ShellResult = call { uninstall(pkg) }
 
-    suspend fun installApk(apkPath: String, flags: List<String> = listOf("-r")): ShellResult {
-        val file = File(apkPath)
-        if (!file.isFile) return ShellResult(-1, "APK not found")
-        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-            call { install(pfd, file.length(), flags.toTypedArray()) }
+    override suspend fun installApk(apkPath: String, flags: List<String>): ShellResult =
+        installSplitApks(listOf(apkPath), flags)
+
+    override suspend fun installSplitApks(apkPaths: List<String>, flags: List<String>): ShellResult {
+        if (apkPaths.isEmpty()) return ShellResult(-1, "No APKs to install")
+        val files = apkPaths.map { File(it) }
+        if (files.any { !it.isFile }) return ShellResult(-1, "One or more APK files not found")
+
+        val pfds = files.map { ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY) }
+        val names = files.mapIndexed { idx, f -> "${idx}_${f.name}" }
+        val sizes = files.map { it.length() }.toLongArray()
+
+        return try {
+            call {
+                installMultiple(
+                    pfds.toTypedArray(),
+                    names.toTypedArray(),
+                    sizes,
+                    flags.toTypedArray()
+                )
+            }
+        } finally {
+            pfds.forEach { runCatching { it.close() } }
         }
     }
 

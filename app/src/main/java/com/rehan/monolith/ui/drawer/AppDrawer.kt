@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,6 +90,9 @@ import com.rehan.monolith.ui.common.MonoBadge
 import com.rehan.monolith.ui.common.MonoFilter
 import com.rehan.monolith.ui.common.PureWhite
 import com.rehan.monolith.ui.common.TextDim
+import com.rehan.monolith.ui.home.PulleyMenuItem
+import com.rehan.monolith.ui.home.PulleyMenuState
+import com.rehan.monolith.ui.home.PulleyMenuView
 import kotlinx.coroutines.launch
 
 private val DrawerBackground = Color.Black
@@ -114,6 +118,7 @@ fun AppDrawerOverlay(
     usageMinutesMap: Map<String, Int> = emptyMap(),
     kidsApps: Set<String>,
     focusActive: Boolean = false,
+    initialLetter: Char? = null,
     onClose: () -> Unit,
     onToggleShowFrozen: () -> Unit,
     onToggleGridView: () -> Unit,
@@ -159,32 +164,64 @@ fun AppDrawerOverlay(
     }
 
     val scope = rememberCoroutineScope()
-    val gridState = rememberLazyGridState()
-    val listState = rememberLazyListState()
+    val initialIdx = remember(initialLetter, letterIndex) {
+        initialLetter?.let { letterIndex[it] } ?: 0
+    }
+    val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = initialIdx)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIdx)
     fun jumpTo(letter: Char) {
         val idx = letterIndex[letter] ?: return
         scope.launch { if (useGrid) gridState.scrollToItem(idx) else listState.scrollToItem(idx) }
     }
 
-    // Pulling down while the list is already at the top closes the drawer.
-    val closeThreshold = with(LocalDensity.current) { 96.dp.toPx() }
-    val pullToClose = remember(onClose, closeThreshold) {
+    LaunchedEffect(initialLetter) {
+        if (initialLetter != null) {
+            jumpTo(initialLetter)
+        }
+    }
+
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+
+    val drawerPulleyItems = remember(useGrid, showFrozen, autoLaunchSingle) {
+        listOf(
+            PulleyMenuItem("CLOSE", "CLOSE DRAWER", onClose),
+            PulleyMenuItem("AUTO_LAUNCH", if (autoLaunchSingle) "DISABLE AUTO-LAUNCH" else "AUTO-LAUNCH MATCH", onToggleAutoLaunch),
+            PulleyMenuItem("PAUSED", if (showFrozen) "HIDE PAUSED APPS" else "SHOW PAUSED APPS", onToggleShowFrozen),
+            PulleyMenuItem("VIEW", if (useGrid) "SHOW AS LIST" else "SHOW AS GRID", onToggleGridView)
+        )
+    }
+
+    val drawerPulleyState = remember(drawerPulleyItems.size, density) {
+        PulleyMenuState(density = density, itemCount = drawerPulleyItems.size)
+    }
+
+    // Pulling down while the list is already at the top drives pulley menu or closes drawer on deep pull.
+    val pullToClose = remember(drawerPulleyState, haptics) {
         object : NestedScrollConnection {
-            var pulled = 0f
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 0f) {
-                    pulled += available.y
-                } else if (consumed.y != 0f) {
-                    pulled = 0f
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (drawerPulleyState.currentOffsetPx > 0f && available.y < 0f) {
+                    drawerPulleyState.onDragDelta(available.y, haptics)
+                    return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
 
-            // Close on release, not mid-drag, so the rest of the gesture can't land on home.
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y > 0f) {
+                    drawerPulleyState.onDragDelta(available.y, haptics)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
             override suspend fun onPreFling(available: Velocity): Velocity {
-                val close = pulled > closeThreshold
-                pulled = 0f
-                if (close) onClose()
+                if (drawerPulleyState.currentOffsetPx > 0f) {
+                    drawerPulleyState.release(haptics) { idx ->
+                        drawerPulleyItems[idx].action()
+                    }
+                    return available
+                }
                 return Velocity.Zero
             }
         }
@@ -198,7 +235,7 @@ fun AppDrawerOverlay(
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DrawerBackground)
@@ -207,41 +244,70 @@ fun AppDrawerOverlay(
             .imePadding()
             .testTag("drawer")
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 6.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                if (searching) "${results.size} results" else "${sections.sumOf { it.apps.size }} apps",
-                fontSize = 13.sp,
-                color = TextDim,
-                modifier = Modifier.weight(1f)
+        if (drawerPulleyState.currentOffsetPx > 0f) {
+            PulleyMenuView(
+                items = drawerPulleyItems,
+                state = drawerPulleyState,
+                modifier = Modifier.align(Alignment.TopCenter)
             )
-            if (!focusActive) {
-                Box {
-                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("drawer_menu")) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = "Drawer options", tint = PureWhite)
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(if (grid) "Show as list" else "Show as grid") },
-                            onClick = { onToggleGridView(); menuOpen = false }
-                        )
-                        MenuCheck("Show paused apps", showFrozen) { onToggleShowFrozen() }
-                        MenuCheck("Open single search match", autoLaunchSingle) { onToggleAutoLaunch() }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = drawerPulleyState.currentOffsetPx
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 12.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (searching) "${results.size} results" else "${sections.sumOf { it.apps.size }} apps",
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp,
+                    color = TextDim,
+                    modifier = Modifier.weight(1f)
+                )
+                if (!focusActive) {
+                    Box {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { menuOpen = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("drawer_menu")
+                        ) {
+                            Text(
+                                if (grid) "GRID" else "LIST",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = PureWhite
+                            )
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (grid) "Show as list" else "Show as grid") },
+                                onClick = { onToggleGridView(); menuOpen = false }
+                            )
+                            MenuCheck("Show paused apps", showFrozen) { onToggleShowFrozen() }
+                            MenuCheck("Open single search match", autoLaunchSingle) { onToggleAutoLaunch() }
+                        }
                     }
                 }
             }
-        }
 
         // No stretch overscroll: leftover pull at the top must reach pullToClose.
         CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val listModifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
+                .fillMaxSize()
                 .nestedScroll(pullToClose)
                 .testTag("drawer_list")
 
@@ -249,7 +315,7 @@ fun AppDrawerOverlay(
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Fixed(4),
-                    contentPadding = PaddingValues(start = 12.dp, end = 4.dp, bottom = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = listModifier
                 ) {
@@ -267,7 +333,7 @@ fun AppDrawerOverlay(
             } else {
                 LazyColumn(
                     state = listState,
-                    contentPadding = PaddingValues(start = 12.dp, end = 4.dp, bottom = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     modifier = listModifier
                 ) {
                     rows.forEach { row ->
@@ -293,10 +359,6 @@ fun AppDrawerOverlay(
                         }
                     }
                 }
-            }
-
-            if (!searching && sections.size > 1) {
-                LetterScrubber(sections.map { it.letter }, ::jumpTo)
             }
         }
         }
@@ -333,6 +395,7 @@ fun AppDrawerOverlay(
                 .padding(horizontal = 16.dp, vertical = 10.dp)
                 .testTag("drawer_search")
         )
+    }
     }
 }
 
@@ -480,7 +543,13 @@ private fun ListApp(
 
 /** A-Z strip: a bubble follows the finger and nearby letters swell (fisheye); the list jumps as you slide. */
 @Composable
-private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
+internal fun LetterScrubber(
+    letters: List<Char>,
+    onLetter: (Char) -> Unit,
+    modifier: Modifier = Modifier,
+    onLetterSelected: ((Char) -> Unit)? = null,
+    testTagPrefix: String = "scrubber"
+) {
     var height by remember { mutableIntStateOf(1) }
     var touchY by remember { mutableStateOf<Float?>(null) }
     var current by remember { mutableStateOf<Char?>(null) }
@@ -500,7 +569,7 @@ private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
 
     val pos = touchY?.let { positionAt(it) }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .width(28.dp)
             .fillMaxHeight()
             .padding(vertical = 8.dp)
@@ -518,11 +587,15 @@ private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
                             select(change.position.y)
                         }
                     } while (change.pressed)
+                    val released = current
                     touchY = null
                     current = null
+                    if (released != null) {
+                        onLetterSelected?.invoke(released)
+                    }
                 }
             }
-            .testTag("scrubber")
+            .testTag(testTagPrefix)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
             letters.forEachIndexed { i, letter ->
@@ -533,7 +606,7 @@ private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .testTag("scrubber_$letter")
+                        .testTag("${testTagPrefix}_$letter")
                 ) {
                     Text(
                         letter.toString(),
@@ -567,14 +640,14 @@ private fun LetterScrubber(letters: List<Char>, onLetter: (Char) -> Unit) {
                     .requiredSize(bubble)
                     .clip(CircleShape)
                     .background(PureWhite)
-                    .testTag("scrubber_bubble")
+                    .testTag("${testTagPrefix}_bubble")
             ) {
                 Text(
                     letter.toString(),
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black,
-                    modifier = Modifier.testTag("scrubber_bubble_$letter")
+                    modifier = Modifier.testTag("${testTagPrefix}_bubble_$letter")
                 )
             }
         }

@@ -21,11 +21,12 @@ class DrawerListTest {
     }
 
     @Test
-    fun `GIVEN unsorted apps THEN sections are hash first then A-Z, apps sorted case-insensitively`() {
+    fun `GIVEN unsorted apps THEN sections are A-Z then hash, apps sorted case-insensitively`() {
         val s = buildDrawerSections(listOf(app("chess"), app("Brave"), app("2048"), app("Calculator"), app("brave Beta")), showPaused = true)
-        assertEquals(listOf('#', 'B', 'C'), s.map { it.letter })
-        assertEquals(listOf("Brave", "brave Beta"), s[1].apps.map { it.label })
-        assertEquals(listOf("Calculator", "chess"), s[2].apps.map { it.label })
+        assertEquals(listOf('B', 'C', '#'), s.map { it.letter })
+        assertEquals(listOf("Brave", "brave Beta"), s[0].apps.map { it.label })
+        assertEquals(listOf("Calculator", "chess"), s[1].apps.map { it.label })
+        assertEquals(listOf("2048"), s[2].apps.map { it.label })
     }
 
     @Test

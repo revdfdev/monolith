@@ -74,7 +74,7 @@ internal fun WidgetManagerSheet(
             "POMODORO" to "Pomodoro 25 / 5 Ring",
             "STOPWATCH" to "Stopwatch",
             "ALARM_USAGE" to "Screen Time & Alarm",
-            "USAGE_LIMITS" to "App Usage Cover (Curbox)",
+            "USAGE_LIMITS" to "App Usage Limits",
             "QUICK_ACTIONS" to "Quick Actions",
             "NOTES" to "Scratchpad"
         )

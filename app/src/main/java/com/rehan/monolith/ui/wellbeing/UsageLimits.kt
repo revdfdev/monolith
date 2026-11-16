@@ -112,7 +112,7 @@ internal fun UsageLimitsCoverWidget(
                     }
                 }
             }
-            Text("Curbox Cover", fontSize = 10.sp, color = TextDim, maxLines = 1)
+            Text("App Usage Limit", fontSize = 10.sp, color = TextDim, maxLines = 1)
         }
     }
 }

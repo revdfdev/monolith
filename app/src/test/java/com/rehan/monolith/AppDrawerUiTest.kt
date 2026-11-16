@@ -59,22 +59,20 @@ class AppDrawerUiTest {
     }
 
     @Test
-    fun `GIVEN drawer WHEN tapping letter Z in the scrubber THEN the Z section is shown`() {
+    fun `GIVEN drawer WHEN rendered THEN edge scrubber is absent`() {
         show()
-        rule.onNodeWithTag("scrubber_Z").performClick()
-        rule.waitForIdle()
-        rule.onNodeWithTag("app_p.z1").assertIsDisplayed()
+        rule.onNodeWithTag("drawer_scrubber").assertDoesNotExist()
+        rule.onNodeWithTag("scrubber_Z").assertDoesNotExist()
     }
 
     @Test
-    fun `GIVEN list view WHEN tapping letter Z THEN the Z header and its apps are shown`() {
+    fun `GIVEN list view WHEN switched to list THEN letter headers and apps are shown`() {
         show()
         rule.onNodeWithTag("drawer_menu").performClick()
         rule.onNodeWithText("Show as list").performClick()
-        rule.onNodeWithTag("scrubber_Z").performClick()
         rule.waitForIdle()
-        rule.onNodeWithTag("header_Z").assertIsDisplayed()
-        rule.onNodeWithTag("app_p.z1").assertIsDisplayed()
+        rule.onNodeWithTag("header_A").assertIsDisplayed()
+        rule.onNodeWithTag("app_p.a1").assertIsDisplayed()
     }
 
     @Test
@@ -107,19 +105,5 @@ class AppDrawerUiTest {
         rule.onNodeWithText("Show paused apps").assertIsDisplayed()
         rule.onNodeWithText("Open single search match").assertIsDisplayed()
         rule.onNodeWithText("Show as list").assertIsDisplayed()
-    }
-
-    @Test
-    fun `GIVEN finger held on the strip THEN a bubble shows that letter and disappears on release`() {
-        show()
-        rule.onNodeWithTag("scrubber_bubble").assertDoesNotExist()
-        rule.onNodeWithTag("scrubber_M").performTouchInput { down(center) }
-        rule.waitForIdle()
-        rule.onNodeWithTag("scrubber_bubble").assertIsDisplayed()
-        rule.onNodeWithTag("scrubber_bubble_M", useUnmergedTree = true).assertExists()
-        rule.onNodeWithTag("app_p.m1").assertIsDisplayed()
-        rule.onNodeWithTag("scrubber_M").performTouchInput { up() }
-        rule.waitForIdle()
-        rule.onNodeWithTag("scrubber_bubble").assertDoesNotExist()
     }
 }

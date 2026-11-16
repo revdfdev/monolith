@@ -104,7 +104,7 @@ internal fun MindfulPauseDialog(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        "CURBOX MINDFUL PAUSE",
+                        "MINDFUL PAUSE",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 1.6.sp,

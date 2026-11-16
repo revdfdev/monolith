@@ -84,6 +84,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.rehan.monolith.ui.drawer.LetterScrubber
+import com.rehan.monolith.ui.drawer.sectionLetter
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -118,6 +126,7 @@ fun HomeLauncherPage(
     onRemoveSystemWidget: (Int) -> Unit,
     onTrimCaches: () -> Unit,
     onOpenDrawer: () -> Unit,
+    onOpenDrawerAt: (Char) -> Unit = {},
     onKidsMode: () -> Unit,
     onToggleFocus: () -> Unit,
     onToggleGrayscale: () -> Unit,
@@ -171,83 +180,135 @@ fun HomeLauncherPage(
     val pinnedEntries = remember(pinnedPackages, appMap) { pinnedPackages.mapNotNull { appMap[it] } }
     val horizontalAlign = if (homeConfig.alignCenter) Alignment.CenterHorizontally else Alignment.Start
 
-    // The home grid claims vertical drags, so leftover (unscrollable) drag is what opens the drawer or shelf.
-    val swipeThreshold = with(LocalDensity.current) { 48.dp.toPx() }
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val pulleyItems = remember(focusActive) {
+        listOf(
+            PulleyMenuItem("WIDGETS", "WIDGET MANAGER", onOpenWidgetManager),
+            PulleyMenuItem("SHELF", "SETTINGS MANAGER", onOpenShizukuShelf),
+            PulleyMenuItem("FOCUS", if (focusActive) "EXIT FOCUS" else "FOCUS MODE", onToggleFocus),
+            PulleyMenuItem("CUSTOMIZE", "CUSTOMIZE HOME", onOpenCustomizer)
+        )
+    }
+
+    val pulleyState = remember(pulleyItems.size, density) {
+        PulleyMenuState(density = density, itemCount = pulleyItems.size)
+    }
+
+    val swipeThreshold = with(density) { 48.dp.toPx() }
     val currentOpenDrawer by rememberUpdatedState(onOpenDrawer)
-    val currentOpenShelf by rememberUpdatedState(onOpenShizukuShelf)
-    val homeSwipe = remember(swipeThreshold) {
+    val homeSwipe = remember(swipeThreshold, pulleyState) {
         object : NestedScrollConnection {
-            var leftover = 0f
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (pulleyState.currentOffsetPx > 0f && available.y < 0f) {
+                    pulleyState.onDragDelta(available.y, haptics)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
-                leftover += available.y
-                when {
-                    leftover < -swipeThreshold -> { leftover = 0f; currentOpenDrawer() }
-                    leftover > swipeThreshold -> { leftover = 0f; currentOpenShelf() }
+                if (available.y > 0f) {
+                    pulleyState.onDragDelta(available.y, haptics)
+                    return Offset(0f, available.y)
+                } else if (available.y < -swipeThreshold && pulleyState.currentOffsetPx <= 0f) {
+                    currentOpenDrawer()
+                    return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                leftover = 0f
+                if (pulleyState.currentOffsetPx > 0f) {
+                    pulleyState.release(haptics) { idx ->
+                        pulleyItems[idx].action()
+                    }
+                    return available
+                }
                 return Velocity.Zero
             }
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .nestedScroll(homeSwipe)
-            .pointerInput(Unit) {
-                var totalDrag = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { totalDrag = 0f },
-                    onVerticalDrag = { _, dragAmount ->
-                        totalDrag += dragAmount
-                        if (totalDrag < -90f) {
-                            totalDrag = 0f
-                            onOpenDrawer()
-                        } else if (totalDrag > 90f) {
-                            totalDrag = 0f
-                            onOpenShizukuShelf()
-                        }
-                    }
-                )
-            }
-            .combinedClickable(
-                onClick = {},
-                onLongClick = { if (!focusActive) onOpenCustomizer() },
-                interactionSource = null,
-                indication = null
-            )
-            .statusBarsPadding()
-            .padding(horizontal = 22.dp, vertical = 14.dp)
     ) {
-        // Top status bar: Settings + Customize button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                color = LocalTileSurface.current,
-                contentColor = PureWhite,
-                shape = CircleShape,
-                border = BorderStroke(1.dp, LocalTileBorder.current),
-                modifier = Modifier.clickable {
-                    try {
-                        context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    } catch (_: Throwable) {
-                        onOpenShizukuShelf()
-                    }
+        if (pulleyState.currentOffsetPx > 0f) {
+            PulleyMenuView(
+                items = pulleyItems,
+                state = pulleyState,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = pulleyState.currentOffsetPx
                 }
+                .pointerInput(pulleyState) {
+                    var upwardDrag = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { upwardDrag = 0f },
+                        onVerticalDrag = { _, dragAmount ->
+                            if (dragAmount > 0f || pulleyState.currentOffsetPx > 0f) {
+                                pulleyState.onDragDelta(dragAmount, haptics)
+                            } else if (dragAmount < 0f && pulleyState.currentOffsetPx <= 0f) {
+                                upwardDrag += dragAmount
+                                if (upwardDrag < -80f) {
+                                    upwardDrag = 0f
+                                    onOpenDrawer()
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            upwardDrag = 0f
+                            coroutineScope.launch {
+                                pulleyState.release(haptics) { idx ->
+                                    pulleyItems[idx].action()
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            upwardDrag = 0f
+                            coroutineScope.launch {
+                                pulleyState.release(haptics) { /* cancelled */ }
+                            }
+                        }
+                    )
+                }
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = { if (!focusActive) onOpenCustomizer() },
+                    interactionSource = null,
+                    indication = null
+                )
+                .statusBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 14.dp)
+        ) {
+            // Calm minimalist top bar: Shizuku status + Pulley hint + Focus indicator
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { onOpenShizukuShelf() }
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .testTag("home_status")
                 ) {
                     Box(
                         modifier = Modifier
@@ -255,49 +316,54 @@ fun HomeLauncherPage(
                             .clip(CircleShape)
                             .background(if (shizukuStatus.isReady) PureWhite else TextDim)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        "SETTINGS",
+                        "MONOLITH",
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.4.sp,
                         color = PureWhite
                     )
                 }
-            }
 
-            Surface(
-                color = if (focusActive) PureWhite else LocalTileSurface.current,
-                contentColor = if (focusActive) PureBlack else PureWhite,
-                shape = CircleShape,
-                border = BorderStroke(1.dp, LocalTileBorder.current),
-                modifier = Modifier.clickable {
-                    if (focusActive) onToggleFocus() else onOpenCustomizer()
-                }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        if (focusActive) Icons.Rounded.DoNotDisturbOn else Icons.Rounded.Tune,
-                        contentDescription = if (focusActive) "Focus Active" else "Customize",
-                        tint = if (focusActive) PureBlack else PureWhite,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(Modifier.width(5.dp))
+                Box(
+                    modifier = Modifier
+                        .width(32.dp)
+                        .height(2.dp)
+                        .clip(CircleShape)
+                        .background(PureWhite.copy(alpha = 0.2f))
+                        .testTag("home_pulley_hint")
+                )
+
+                if (focusActive) {
+                    Surface(
+                        color = PureWhite,
+                        contentColor = PureBlack,
+                        shape = CircleShape,
+                        modifier = Modifier.clickable { onToggleFocus() }
+                    ) {
+                        Text(
+                            "FOCUS ON",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                } else {
                     Text(
-                        if (focusActive) "FOCUS ON" else "CUSTOMIZE",
-                        fontSize = 10.sp,
+                        "PULL DOWN",
+                        fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = if (focusActive) PureBlack else PureWhite
+                        letterSpacing = 1.2.sp,
+                        color = TextDim
                     )
                 }
             }
-        }
 
-        Spacer(Modifier.height(18.dp))
-
-        Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(10.dp))
 
         val deckItems = centerWidgets.filterNot { it == "APPS_GRID" }
         val showAppsTiles = centerWidgets.contains("APPS_GRID")
@@ -563,77 +629,179 @@ fun HomeLauncherPage(
                 }
 
                 item(span = { GridItemSpan(2) }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val gridEntries: List<AppEntry?> = if (focusActive) pinnedEntries else pinnedEntries + listOf<AppEntry?>(null)
-                        val rows = gridEntries.chunked(4)
-                        rows.forEach { rowItems ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                rowItems.forEach { app ->
-                                    if (app == null) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .aspectRatio(1f)
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .clickable { onOpenAppPicker() },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Rounded.Add, contentDescription = "Add", tint = TextDim, modifier = Modifier.size(22.dp))
-                                        }
-                                    } else {
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .combinedClickable(
-                                                    onClick = { if (app.isFrozen) onLongPressApp(app) else onLaunchApp(app.packageName) },
-                                                    onLongClick = { onLongPressApp(app) }
-                                                )
-                                                .padding(vertical = 6.dp, horizontal = 4.dp),
-                                            verticalArrangement = Arrangement.Center,
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            if (app.icon != null) {
-                                                Box {
-                                                    Image(
-                                                        bitmap = app.icon,
-                                                        contentDescription = null,
-                                                        colorFilter = if (grayscaleOn) MonoFilter else null,
-                                                        modifier = Modifier
-                                                            .size(44.dp)
-                                                            .clip(RoundedCornerShape(12.dp))
+                    if (homeConfig.pinnedLayout == "COVERS" || homeConfig.pinnedLayout.isEmpty()) {
+                        // Sailfish Active Covers (2-column cards with live usage minutes)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val coverEntries: List<AppEntry?> = if (focusActive) pinnedEntries else pinnedEntries + listOf<AppEntry?>(null)
+                            val rows = coverEntries.chunked(2)
+                            rows.forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowItems.forEach { app ->
+                                        if (app == null) {
+                                            Surface(
+                                                color = LocalTileSurface.current,
+                                                shape = RoundedCornerShape(16.dp),
+                                                border = BorderStroke(1.dp, LocalTileBorder.current),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(64.dp)
+                                                    .clickable { onOpenAppPicker() }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(Icons.Rounded.Add, contentDescription = "Add cover", tint = TextDim, modifier = Modifier.size(18.dp))
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text("ADD COVER", fontSize = 10.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp, color = TextDim)
+                                                }
+                                            }
+                                        } else {
+                                            val usedMins = usageMinutesMap[app.packageName] ?: 0
+                                            Surface(
+                                                color = LocalTileSurface.current,
+                                                shape = RoundedCornerShape(16.dp),
+                                                border = BorderStroke(1.dp, LocalTileBorder.current),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(64.dp)
+                                                    .combinedClickable(
+                                                        onClick = { if (app.isFrozen) onLongPressApp(app) else onLaunchApp(app.packageName) },
+                                                        onLongClick = { onLongPressApp(app) }
                                                     )
-                                                    if (mindfulApps.contains(app.packageName)) {
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    if (app.icon != null) {
+                                                        Image(
+                                                            bitmap = app.icon,
+                                                            contentDescription = null,
+                                                            colorFilter = if (grayscaleOn) MonoFilter else null,
+                                                            modifier = Modifier
+                                                                .size(28.dp)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                        )
+                                                    } else {
                                                         Box(
                                                             modifier = Modifier
-                                                                .size(7.dp)
+                                                                .size(28.dp)
                                                                 .clip(CircleShape)
-                                                                .background(PureWhite)
-                                                                .align(Alignment.TopEnd)
+                                                                .background(BorderHairline),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(sectionLetter(app.label).toString(), fontSize = 12.sp, color = PureWhite)
+                                                        }
+                                                    }
+                                                    Spacer(Modifier.width(10.dp))
+                                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                                                        Text(
+                                                            app.label,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = if (app.isFrozen) TextDim else PureWhite,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
                                                         )
+                                                        if (usedMins > 0) {
+                                                            Text(
+                                                                "${usedMins}m today",
+                                                                fontSize = 9.sp,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                color = TextDim,
+                                                                maxLines = 1
+                                                            )
+                                                        }
                                                     }
                                                 }
-                                                Spacer(Modifier.height(5.dp))
-                                            }
-                                            Text(app.label, fontSize = 11.sp, color = if (app.isFrozen) TextDim else PureWhite, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            val usedMins = usageMinutesMap[app.packageName] ?: 0
-                                            if (usedMins > 0) {
-                                                Text(
-                                                    "${usedMins}m",
-                                                    fontSize = 9.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    color = TextDim,
-                                                    maxLines = 1
-                                                )
                                             }
                                         }
                                     }
+                                    if (rowItems.size == 1) {
+                                        Spacer(Modifier.weight(1f))
+                                    }
                                 }
-                                repeat(4 - rowItems.size) {
-                                    Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    } else {
+                        // Compact Icon Grid
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val gridEntries: List<AppEntry?> = if (focusActive) pinnedEntries else pinnedEntries + listOf<AppEntry?>(null)
+                            val rows = gridEntries.chunked(4)
+                            rows.forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowItems.forEach { app ->
+                                        if (app == null) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .aspectRatio(1f)
+                                                    .clip(RoundedCornerShape(14.dp))
+                                                    .clickable { onOpenAppPicker() },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Rounded.Add, contentDescription = "Add", tint = TextDim, modifier = Modifier.size(22.dp))
+                                            }
+                                        } else {
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(14.dp))
+                                                    .combinedClickable(
+                                                        onClick = { if (app.isFrozen) onLongPressApp(app) else onLaunchApp(app.packageName) },
+                                                        onLongClick = { onLongPressApp(app) }
+                                                    )
+                                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                                verticalArrangement = Arrangement.Center,
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                if (app.icon != null) {
+                                                    Box {
+                                                        Image(
+                                                            bitmap = app.icon,
+                                                            contentDescription = null,
+                                                            colorFilter = if (grayscaleOn) MonoFilter else null,
+                                                            modifier = Modifier
+                                                                .size(44.dp)
+                                                                .clip(RoundedCornerShape(12.dp))
+                                                        )
+                                                        if (mindfulApps.contains(app.packageName)) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(7.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(PureWhite)
+                                                                    .align(Alignment.TopEnd)
+                                                                )
+                                                        }
+                                                    }
+                                                    Spacer(Modifier.height(5.dp))
+                                                }
+                                                Text(app.label, fontSize = 11.sp, color = if (app.isFrozen) TextDim else PureWhite, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                val usedMins = usageMinutesMap[app.packageName] ?: 0
+                                                if (usedMins > 0) {
+                                                    Text(
+                                                        "${usedMins}m",
+                                                        fontSize = 9.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = TextDim,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    repeat(4 - rowItems.size) {
+                                        Spacer(Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
@@ -730,4 +898,5 @@ fun HomeLauncherPage(
             }
         }
     }
+}
 }

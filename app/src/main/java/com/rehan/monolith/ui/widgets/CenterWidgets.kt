@@ -16,6 +16,7 @@ import android.provider.Settings
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -187,7 +189,7 @@ internal fun AlarmUsageCenterWidget(
     Surface(
         color = LocalTileSurface.current,
         contentColor = PureWhite,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, LocalTileBorder.current),
         modifier = Modifier.fillMaxSize()
     ) {
@@ -197,29 +199,84 @@ internal fun AlarmUsageCenterWidget(
                 .padding(14.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("TODAY & ALARM", fontSize = 10.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.2.sp, color = TextDim, maxLines = 1)
-            Column(modifier = Modifier.clickable { if (!usageAlarm.hasUsagePermission) onGrantUsage() }) {
-                Text("SCREEN TIME", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = TextDim, maxLines = 1)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    if (usageAlarm.hasUsagePermission) usageAlarm.screenTime else "Tap to allow",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
+                    "DETOX & USAGE",
+                    fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = PureWhite,
-                    maxLines = 1,
-                    softWrap = false
+                    letterSpacing = 1.4.sp,
+                    color = TextDim,
+                    maxLines = 1
                 )
+                if (usageAlarm.unlockCount > 0) {
+                    Text(
+                        "${usageAlarm.unlockCount} UNLOCKS",
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = PureWhite.copy(alpha = 0.7f),
+                        maxLines = 1
+                    )
+                }
             }
-            Column(modifier = Modifier.clickable { onOpenAlarms() }) {
-                Text("NEXT ALARM", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = TextDim, maxLines = 1)
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { if (!usageAlarm.hasUsagePermission) onGrantUsage() }
+            ) {
+                Text(
+                    if (usageAlarm.hasUsagePermission) usageAlarm.screenTime else "Tap for stats",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Light,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = (-1).sp,
+                    color = PureWhite,
+                    maxLines = 1
+                )
+                Spacer(Modifier.height(4.dp))
+                // Minimalist hairline budget bar (based on 3-hour daily target)
+                val budgetFraction = if (usageAlarm.totalMinutes > 0) {
+                    (usageAlarm.totalMinutes / 180f).coerceIn(0.05f, 1f)
+                } else 0f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(BorderHairline)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(budgetFraction)
+                            .height(2.dp)
+                            .background(PureWhite)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenAlarms() },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "NEXT ALARM",
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp,
+                    color = TextDim
+                )
                 Text(
                     usageAlarm.nextAlarm,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = PureWhite,
-                    maxLines = 1,
-                    softWrap = false
+                    fontWeight = FontWeight.Medium,
+                    color = PureWhite
                 )
             }
         }
@@ -236,59 +293,93 @@ internal fun QuickActionsCenterWidget(
     Surface(
         color = LocalTileSurface.current,
         contentColor = PureWhite,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, LocalTileBorder.current),
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxSize()
         ) {
-            Text("QUICK ACTIONS", fontSize = 10.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.2.sp, color = TextDim, maxLines = 1)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(
-                    onClick = onWifi,
-                    border = BorderStroke(1.dp, BorderHairline),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
+            Row(
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clickable { onWifi() }
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.Wifi, contentDescription = null, modifier = Modifier.size(14.dp), tint = PureWhite)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Wi-Fi", color = PureWhite, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.Wifi, contentDescription = "Wi-Fi", modifier = Modifier.size(18.dp), tint = PureWhite)
+                        Spacer(Modifier.height(3.dp))
+                        Text("WI-FI", fontSize = 9.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp, color = TextDim)
+                    }
                 }
-                OutlinedButton(
-                    onClick = onBluetooth,
-                    border = BorderStroke(1.dp, BorderHairline),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxSize()
+                        .background(BorderHairline)
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clickable { onBluetooth() }
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp), tint = PureWhite)
-                    Spacer(Modifier.width(4.dp))
-                    Text("BT", color = PureWhite, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.Bluetooth, contentDescription = "Bluetooth", modifier = Modifier.size(18.dp), tint = PureWhite)
+                        Spacer(Modifier.height(3.dp))
+                        Text("BT", fontSize = 9.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp, color = TextDim)
+                    }
                 }
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(
-                    onClick = onTrimCache,
-                    border = BorderStroke(1.dp, BorderHairline),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(BorderHairline)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clickable { onTrimCache() }
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.CleaningServices, contentDescription = null, modifier = Modifier.size(14.dp), tint = PureWhite)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Trim", color = PureWhite, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.CleaningServices, contentDescription = "Trim", modifier = Modifier.size(18.dp), tint = PureWhite)
+                        Spacer(Modifier.height(3.dp))
+                        Text("TRIM", fontSize = 9.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp, color = TextDim)
+                    }
                 }
-                OutlinedButton(
-                    onClick = onSettings,
-                    border = BorderStroke(1.dp, BorderHairline),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxSize()
+                        .background(BorderHairline)
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clickable { onSettings() }
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.Tune, contentDescription = null, modifier = Modifier.size(14.dp), tint = PureWhite)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Prefs", color = PureWhite, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Rounded.Tune, contentDescription = "Prefs", modifier = Modifier.size(18.dp), tint = PureWhite)
+                        Spacer(Modifier.height(3.dp))
+                        Text("PREFS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp, color = TextDim)
+                    }
                 }
             }
         }

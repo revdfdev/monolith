@@ -58,4 +58,17 @@ class AppRepositoryTest {
         repo.refresh(); advanceUntilIdle()
         assertEquals(setOf("f.app"), seen)
     }
+
+    @Test
+    fun `GIVEN bounded icon cache WHEN entries exceed capacity THEN oldest are evicted`() {
+        val cache = com.rehan.monolith.data.BoundedIconCache<String>(maxSize = 2)
+        cache["a"] = "icon_a"
+        cache["b"] = "icon_b"
+        assertEquals(2, cache.size)
+        cache["c"] = "icon_c"
+        assertEquals(2, cache.size)
+        org.junit.Assert.assertNull(cache["a"])
+        assertEquals("icon_b", cache["b"])
+        assertEquals("icon_c", cache["c"])
+    }
 }

@@ -6,7 +6,7 @@ object ShizukuCommands {
     private val SETTING_KEY = Regex("^[A-Za-z0-9_.]+$")
     private val USER_NAME = Regex("^[A-Za-z0-9_-]+$")
     private val NAMESPACES = setOf("system", "secure", "global")
-    private val INSTALL_FLAGS = setOf("-r", "-d", "-g")
+    private val INSTALL_FLAGS = setOf("-r", "-d", "-g", "-t", "--bypass-low-target-sdk-block")
     private val DND_MODES = setOf("off", "priority", "alarms", "none")
 
     fun isValidPackage(pkg: String) = PACKAGE.matches(pkg)
@@ -37,4 +37,25 @@ object ShizukuCommands {
     fun switchUser(id: Int) = listOf("am", "switch-user", user(id))
     fun createUser(name: String) = listOf("pm", "create-user", name.also { require(USER_NAME.matches(it)) { "Invalid user name" } })
     fun installExisting(p: String, userId: Int) = listOf("pm", "install-existing", "--user", user(userId), pkg(p))
+
+    fun installCreate(flags: List<String>): List<String> {
+        require(flags.all { it in INSTALL_FLAGS }) { "Invalid install flags: $flags" }
+        return listOf("pm", "install-create") + flags
+    }
+
+    fun installWrite(sessionId: String, name: String, size: Long): List<String> {
+        require(sessionId.all { it.isDigit() }) { "Invalid session id: $sessionId" }
+        require(size > 0) { "Invalid size: $size" }
+        return listOf("pm", "install-write", "-S", size.toString(), sessionId, name, "-")
+    }
+
+    fun installCommit(sessionId: String): List<String> {
+        require(sessionId.all { it.isDigit() }) { "Invalid session id: $sessionId" }
+        return listOf("pm", "install-commit", sessionId)
+    }
+
+    fun installAbandon(sessionId: String): List<String> {
+        require(sessionId.all { it.isDigit() }) { "Invalid session id: $sessionId" }
+        return listOf("pm", "install-abandon", sessionId)
+    }
 }

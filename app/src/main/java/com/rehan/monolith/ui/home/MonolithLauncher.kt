@@ -57,8 +57,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChildCare
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoNotDisturbOn
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PushPin
@@ -67,13 +69,16 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -119,6 +124,7 @@ fun MonolithLauncher(
 
     val pagerState = rememberPagerState(initialPage = 1) { 2 }
     var drawerOpen by remember { mutableStateOf(false) }
+    var drawerInitialLetter by remember { mutableStateOf<Char?>(null) }
 
     val apps by viewModel.apps.collectAsState()
     val settings by viewModel.settings.collectAsState()
@@ -184,7 +190,7 @@ fun MonolithLauncher(
     val installersLocked = tweaks.installersLocked
     val showFrozen = settings.showFrozenInDrawer
     val autoLaunchSingle = settings.autoLaunchSingleMatch
-    var selectedAppForSheet by remember { mutableStateOf<AppEntry?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
     var showKidsAppsPicker by remember { mutableStateOf(false) }
     var enterKidsAfterPick by remember { mutableStateOf(false) }
     val dailyLimits = settings.dailyLimits
@@ -194,12 +200,21 @@ fun MonolithLauncher(
     var pendingMindfulPkg by remember { mutableStateOf<String?>(null) }
     var pendingLimitPkg by remember { mutableStateOf<String?>(null) }
     var pendingApkInstall by remember { mutableStateOf<PendingApkInfo?>(null) }
+    var apkLoadingState by remember { mutableStateOf<ApkLoadingState?>(null) }
+    var copyApkJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var currentLoadingUri by remember { mutableStateOf<Uri?>(null) }
+    val packageInstallState by viewModel.packageInstallState.collectAsState()
 
     BackHandler(enabled = true) {
         when {
             kidsModeActive -> { /* Locked in Kids Space */ }
-            drawerOpen -> drawerOpen = false
-            pagerState.currentPage != 1 -> scope.launch { pagerState.animateScrollToPage(1) }
+            drawerOpen -> {
+                drawerOpen = false
+                drawerInitialLetter = null
+            }
+            showSettings -> {
+                showSettings = false
+            }
             else -> { /* Stay on Home; never exit to system launcher */ }
         }
     }
@@ -231,16 +246,72 @@ fun MonolithLauncher(
         reloadAll()
     }
 
+    fun toast(msg: String) {
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    }
+
     fun processApkUri(uri: Uri) {
-        scope.launch {
-            val info = withContext(Dispatchers.IO) {
-                val out = File(context.externalCacheDir ?: context.cacheDir, "install_${System.currentTimeMillis()}.apk")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    out.outputStream().use { output -> input.copyTo(output) }
+        currentLoadingUri = uri
+        copyApkJob?.cancel()
+        copyApkJob = scope.launch {
+            var out: File? = null
+            try {
+                val info = withContext(Dispatchers.IO) {
+                    var totalSize = -1L
+                    var displayName = "package.apk"
+                    try {
+                        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                if (nameIdx >= 0) cursor.getString(nameIdx)?.let { displayName = it }
+                                val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                                if (sizeIdx >= 0) totalSize = cursor.getLong(sizeIdx)
+                            }
+                        }
+                    } catch (_: Throwable) {}
+
+                    withContext(Dispatchers.Main) {
+                        apkLoadingState = ApkLoadingState(displayName, 0L, totalSize)
+                    }
+
+                    val extension = if (displayName.contains(".")) displayName.substring(displayName.lastIndexOf('.')) else ".apk"
+                    val targetFile = File(context.externalCacheDir ?: context.cacheDir, "install_${System.currentTimeMillis()}$extension")
+                    out = targetFile
+
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        targetFile.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            var copied = 0L
+                            var lastUpdate = System.currentTimeMillis()
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read == -1) break
+                                output.write(buffer, 0, read)
+                                copied += read
+                                val now = System.currentTimeMillis()
+                                if (now - lastUpdate > 120) {
+                                    withContext(Dispatchers.Main) {
+                                        apkLoadingState = ApkLoadingState(displayName, copied, totalSize)
+                                    }
+                                    lastUpdate = now
+                                }
+                            }
+                        }
+                    }
+                    inspectApkFile(context, targetFile)
                 }
-                inspectApkFile(context, out)
+                apkLoadingState = null
+                currentLoadingUri = null
+                pendingApkInstall = info
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                apkLoadingState = null
+                try { out?.delete() } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                apkLoadingState = null
+                currentLoadingUri = null
+                try { out?.delete() } catch (_: Throwable) {}
+                toast("Failed to read package: ${t.message ?: "error"}")
             }
-            pendingApkInstall = info
         }
     }
 
@@ -250,10 +321,6 @@ fun MonolithLauncher(
             processApkUri(uri)
             onConsumeIncomingApk()
         }
-    }
-
-    fun toast(msg: String) {
-        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(viewModel) {
@@ -278,10 +345,11 @@ fun MonolithLauncher(
             pendingLimitPkg = pkg
             return
         }
-        if (mindfulPauseApps.contains(pkg)) {
+        if (mindfulPauseApps.contains(pkg) && !viewModel.isMindfulCooldownActive(pkg)) {
             pendingMindfulPkg = pkg
             return
         }
+        viewModel.onAppLaunchRequested(pkg)
         forceLaunchApp(pkg)
     }
 
@@ -431,164 +499,153 @@ fun MonolithLauncher(
             .background(ambienceBrush)
             .navigationBarsPadding()
     ) {
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            repeat(3) { idx ->
-                val active = pagerState.currentPage == idx
-                Box(
-                    modifier = Modifier
-                        .width(if (active) 16.dp else 6.dp)
-                        .height(2.dp)
-                        .clip(CircleShape)
-                        .background(if (active) PureWhite else BorderHairline)
+        HomeLauncherPage(
+            shizukuStatus = shizukuStatus,
+            apps = apps,
+            pinnedPackages = pinnedPackages,
+            focusActive = focusActive,
+            focusDistractionCount = focusDistractions.size,
+            mindfulApps = mindfulPauseApps,
+            usageMinutesMap = usageMinutesMap,
+            grayscaleOn = grayscaleOn,
+            quickNote = quickNote,
+            homeConfig = homeConfig,
+            centerWidgets = centerWidgets,
+            systemWidgetIds = systemWidgetIds,
+            appWidgetManager = appWidgetManager,
+            appWidgetHost = appWidgetHost,
+            leftDockPkg = leftDockPkg,
+            rightDockPkg = rightDockPkg,
+            onRequestShizuku = { shizuku.requestPermission() },
+            onOpenShizukuShelf = { showSettings = true },
+            onOpenCustomizer = { showCustomizer = true },
+            onOpenWidgetManager = { showWidgetManager = true },
+            onOpenAppPicker = { showAppPicker = true },
+            onPickLeftDock = { dockPickerTarget = "LEFT" },
+            onPickRightDock = { dockPickerTarget = "RIGHT" },
+            onRemoveSystemWidget = { wid ->
+                appWidgetHost.deleteAppWidgetId(wid)
+                prefs.removeSystemWidgetId(wid)
+            },
+            onTrimCaches = {
+                viewModel.trimCaches()
+            },
+            onOpenDrawer = {
+                drawerInitialLetter = null
+                drawerOpen = true
+            },
+            onOpenDrawerAt = { letter ->
+                drawerInitialLetter = letter
+                drawerOpen = true
+            },
+            onKidsMode = { enterKidsMode() },
+            onToggleFocus = { toggleFocusMode() },
+            onToggleGrayscale = {
+                viewModel.setGrayscale(!grayscaleOn)
+            },
+            onEditNote = { showNoteDialog = true },
+            onGrantUsageAccess = {
+                if (shizukuStatus.isReady) {
+                    viewModel.allowUsageStats()
+                } else {
+                    context.startActivity(
+                        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            },
+            onLaunchApp = { launchApp(it) },
+            onLongPressApp = { /* Bottom sheet shortcuts removed */ },
+            onOpenDialer = {
+                context.startActivity(Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            },
+            onOpenCamera = {
+                context.startActivity(
+                    Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             }
-        }
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            when (page) {
-                0 -> ShizukuShelfPage(
-                    status = shizukuStatus,
-                    apps = apps,
-                    kidsAppCount = kidsApps.size,
-                    hasParentPin = hasParentPin,
-                    grayscaleOn = grayscaleOn,
-                    stayAwakeOn = stayAwakeOn,
-                    installersLocked = installersLocked,
-                    ambientDisplayOn = ambientDisplayOn,
-                    onToggleAmbientDisplay = { next ->
-                        viewModel.setAmbientDisplay(next)
-                    },
-                    lockscreenNotifMode = lockscreenNotifMode,
-                    onChangeLockscreenNotifMode = { mode ->
-                        viewModel.setLockscreenMode(mode)
-                    },
-                    onRequestPermission = { shizuku.requestPermission() },
-                    onRefresh = { reloadAll() },
-                    onEnterKidsMode = { enterKidsMode() },
-                    onConfigureKidsApps = {
-                        enterKidsAfterPick = false
-                        showKidsAppsPicker = true
-                    },
-                    focusActive = focusActive,
-                    onToggleFocus = { toggleFocusMode() },
-                    onSaveParentPin = { newPin ->
-                        if (prefs.setParentPin(newPin)) {
-                            toast("Parent PIN saved")
-                        } else {
-                            toast("PIN must be at least 4 digits")
-                        }
-                    },
-                    onSetAnimScale = { scale ->
-                        viewModel.setAnimationScale(scale)
-                    },
-                    onToggleGrayscale = { next ->
-                        viewModel.setGrayscale(next)
-                    },
-                    onToggleStayAwake = { next ->
-                        viewModel.setStayAwake(next)
-                    },
-                    onToggleInstallersLock = { next ->
-                        viewModel.setInstallersLocked(next)
-                    },
-                    onFreezeToggle = { pkg, freeze ->
-                        viewModel.setFrozen(pkg, freeze)
-                    },
-                    onUnfreezeAll = {
-                        viewModel.unfreezeAll()
-                    },
-                    onUninstallApp = { pkg ->
-                        scope.launch {
-                            if (shizukuStatus.isReady) {
-                                val r = shizuku.uninstallPackage(pkg)
-                                toast(if (r.ok) "Uninstalled $pkg" else r.output)
-                                reloadAll()
-                            } else {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg"))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            }
-                        }
-                    },
-                    onInstallApkUri = { uri ->
-                        processApkUri(uri)
-                    },
-                    onTrimCaches = {
-                        viewModel.trimCaches()
-                    },
-                    onSetDefaultLauncher = {
-                        context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-                    }
-                )
+        )
 
-                1 -> HomeLauncherPage(
-                    shizukuStatus = shizukuStatus,
-                    apps = apps,
-                    pinnedPackages = pinnedPackages,
-                    focusActive = focusActive,
-                    focusDistractionCount = focusDistractions.size,
-                    mindfulApps = mindfulPauseApps,
-                    usageMinutesMap = usageMinutesMap,
-                    grayscaleOn = grayscaleOn,
-                    quickNote = quickNote,
-                    homeConfig = homeConfig,
-                    centerWidgets = centerWidgets,
-                    systemWidgetIds = systemWidgetIds,
-                    appWidgetManager = appWidgetManager,
-                    appWidgetHost = appWidgetHost,
-                    leftDockPkg = leftDockPkg,
-                    rightDockPkg = rightDockPkg,
-                    onRequestShizuku = { shizuku.requestPermission() },
-                    onOpenShizukuShelf = { scope.launch { pagerState.animateScrollToPage(0) } },
-                    onOpenCustomizer = { showCustomizer = true },
-                    onOpenWidgetManager = { showWidgetManager = true },
-                    onOpenAppPicker = { showAppPicker = true },
-                    onPickLeftDock = { dockPickerTarget = "LEFT" },
-                    onPickRightDock = { dockPickerTarget = "RIGHT" },
-                    onRemoveSystemWidget = { wid ->
-                        appWidgetHost.deleteAppWidgetId(wid)
-                        prefs.removeSystemWidgetId(wid)
-                    },
-                    onTrimCaches = {
-                        viewModel.trimCaches()
-                    },
-                    onOpenDrawer = { drawerOpen = true },
-                    onKidsMode = { enterKidsMode() },
-                    onToggleFocus = { toggleFocusMode() },
-                    onToggleGrayscale = {
-                        viewModel.setGrayscale(!grayscaleOn)
-                    },
-                    onEditNote = { showNoteDialog = true },
-                    onGrantUsageAccess = {
+        AnimatedVisibility(
+            visible = showSettings,
+            enter = slideInVertically(tween(250, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)),
+            exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(180))
+        ) {
+            ShizukuShelfPage(
+                status = shizukuStatus,
+                apps = apps,
+                kidsAppCount = kidsApps.size,
+                hasParentPin = hasParentPin,
+                grayscaleOn = grayscaleOn,
+                stayAwakeOn = stayAwakeOn,
+                installersLocked = installersLocked,
+                ambientDisplayOn = ambientDisplayOn,
+                onToggleAmbientDisplay = { next ->
+                    viewModel.setAmbientDisplay(next)
+                },
+                lockscreenNotifMode = lockscreenNotifMode,
+                onChangeLockscreenNotifMode = { mode ->
+                    viewModel.setLockscreenMode(mode)
+                },
+                onRequestPermission = { shizuku.requestPermission() },
+                onRefresh = { reloadAll() },
+                onEnterKidsMode = { enterKidsMode() },
+                onConfigureKidsApps = {
+                    enterKidsAfterPick = false
+                    showKidsAppsPicker = true
+                },
+                focusActive = focusActive,
+                onToggleFocus = { toggleFocusMode() },
+                onSaveParentPin = { newPin ->
+                    if (prefs.setParentPin(newPin)) {
+                        toast("Parent PIN saved")
+                    } else {
+                        toast("PIN must be at least 4 digits")
+                    }
+                },
+                onSetAnimScale = { scale ->
+                    viewModel.setAnimationScale(scale)
+                },
+                onToggleGrayscale = { next ->
+                    viewModel.setGrayscale(next)
+                },
+                onToggleStayAwake = { next ->
+                    viewModel.setStayAwake(next)
+                },
+                onToggleInstallersLock = { next ->
+                    viewModel.setInstallersLocked(next)
+                },
+                onFreezeToggle = { pkg, freeze ->
+                    viewModel.setFrozen(pkg, freeze)
+                },
+                onUnfreezeAll = {
+                    viewModel.unfreezeAll()
+                },
+                onUninstallApp = { pkg ->
+                    scope.launch {
                         if (shizukuStatus.isReady) {
-                            viewModel.allowUsageStats()
+                            val r = shizuku.uninstallPackage(pkg)
+                            toast(if (r.ok) "Uninstalled $pkg" else r.output)
+                            reloadAll()
                         } else {
                             context.startActivity(
-                                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                                Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg"))
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             )
                         }
-                    },
-                    onLaunchApp = { launchApp(it) },
-                    onLongPressApp = { if (!focusActive) selectedAppForSheet = it },
-                    onOpenDialer = {
-                        context.startActivity(Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    },
-                    onOpenCamera = {
-                        context.startActivity(
-                            Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
                     }
-                )
-            }
+                },
+                onInstallApkUri = { uri ->
+                    processApkUri(uri)
+                },
+                onTrimCaches = {
+                    viewModel.trimCaches()
+                },
+                onSetDefaultLauncher = {
+                    context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+                },
+                onClose = { showSettings = false }
+            )
         }
 
         AnimatedVisibility(
@@ -603,12 +660,16 @@ fun MonolithLauncher(
                 autoLaunchSingle = autoLaunchSingle,
                 grayscaleOn = grayscaleOn,
                 focusActive = focusActive,
+                initialLetter = drawerInitialLetter,
                 pinnedPackages = pinnedPackages.toSet(),
                 focusDistractions = focusDistractions,
                 mindfulApps = mindfulPauseApps,
                 usageMinutesMap = usageMinutesMap,
                 kidsApps = kidsApps,
-                onClose = { drawerOpen = false },
+                onClose = {
+                    drawerOpen = false
+                    drawerInitialLetter = null
+                },
                 onToggleShowFrozen = {
                     prefs.setShowFrozenInDrawer(!showFrozen)
                 },
@@ -617,14 +678,113 @@ fun MonolithLauncher(
                     prefs.setAutoLaunchSingleMatch(!autoLaunchSingle)
                 },
                 onLaunchApp = { entry ->
-                    if (entry.isFrozen) {
-                        selectedAppForSheet = entry
-                    } else {
-                        launchApp(entry.packageName)
-                    }
+                    launchApp(entry.packageName)
                 },
-                onLongPressApp = { selectedAppForSheet = it }
+                onLongPressApp = { /* Bottom sheet shortcuts removed */ }
             )
+        }
+
+        if (pendingApkInstall == null && packageInstallState !is PackageInstallState.Idle) {
+            val state = packageInstallState
+            LaunchedEffect(state) {
+                if (state is PackageInstallState.Success) {
+                    kotlinx.coroutines.delay(4500)
+                    viewModel.dismissPackageInstallState()
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 60.dp, start = 18.dp, end = 18.dp)
+            ) {
+                Surface(
+                    color = SurfaceBlack,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, BorderHairline),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        when (state) {
+                            is PackageInstallState.Installing -> {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        color = PureWhite,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        "Installing ${state.appLabel}...",
+                                        fontSize = 11.sp,
+                                        color = PureWhite,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            is PackageInstallState.Success -> {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = PureWhite, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "${state.appLabel} installed",
+                                        fontSize = 11.sp,
+                                        color = PureWhite,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Surface(
+                                    color = PureWhite,
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.clickable {
+                                        viewModel.dismissPackageInstallState()
+                                        forceLaunchApp(state.packageName)
+                                    }
+                                ) {
+                                    Text(
+                                        "Open",
+                                        fontSize = 10.sp,
+                                        color = PureBlack,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            is PackageInstallState.Error -> {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        state.reason,
+                                        fontSize = 11.sp,
+                                        color = PureWhite,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "✕",
+                                    fontSize = 11.sp,
+                                    color = TextDim,
+                                    modifier = Modifier
+                                        .clickable { viewModel.dismissPackageInstallState() }
+                                        .padding(4.dp)
+                                    )
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -664,143 +824,6 @@ fun MonolithLauncher(
                 }
             }
         )
-    }
-
-    val sheetApp = selectedAppForSheet
-    if (sheetApp != null) {
-        val isPinned = pinnedPackages.contains(sheetApp.packageName)
-        val isDistraction = focusDistractions.contains(sheetApp.packageName)
-        val isKids = kidsApps.contains(sheetApp.packageName)
-
-        ModalBottomSheet(
-            onDismissRequest = { selectedAppForSheet = null },
-            containerColor = systemBottomSheetContainerColor(),
-            contentColor = systemBottomSheetContentColor()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
-            ) {
-                Text(sheetApp.label, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                val usedToday = usageMinutesMap[sheetApp.packageName] ?: 0
-                val currentLimit = dailyLimits[sheetApp.packageName] ?: 0
-                val isMindful = mindfulPauseApps.contains(sheetApp.packageName)
-                Text(
-                    "${sheetApp.packageName} • Used today: ${usedToday}m" +
-                        if (currentLimit > 0) " / ${currentLimit}m" else "",
-                    fontSize = 12.sp,
-                    color = TextDim,
-                    fontFamily = FontFamily.Monospace
-                )
-                Spacer(Modifier.height(14.dp))
-
-                SheetAction(
-                    icon = Icons.Rounded.PushPin,
-                    label = if (isPinned) "Unpin from Home" else "Pin to Home"
-                ) {
-                    prefs.togglePinned(sheetApp.packageName)
-                    selectedAppForSheet = null
-                }
-
-                SheetAction(
-                    icon = Icons.Rounded.ChildCare,
-                    label = if (isKids) "Remove from Kids Mode" else "Add to Kids Mode"
-                ) {
-                    prefs.toggleKidsApp(sheetApp.packageName)
-                    selectedAppForSheet = null
-                }
-
-                SheetAction(
-                    icon = Icons.Rounded.DoNotDisturbOn,
-                    label = if (isDistraction) "Remove from Focus Freeze" else "Add to Focus Freeze"
-                ) {
-                    prefs.toggleFocusDistraction(sheetApp.packageName)
-                    selectedAppForSheet = null
-                }
-
-                if (shizukuStatus.isReady) {
-                    SheetAction(
-                        icon = Icons.Rounded.AcUnit,
-                        label = if (sheetApp.isFrozen) "Resume App" else "Pause App"
-                    ) {
-                        viewModel.setFrozen(sheetApp.packageName, !sheetApp.isFrozen)
-                        selectedAppForSheet = null
-                    }
-
-                    SheetAction(
-                        icon = Icons.Rounded.StopCircle,
-                        label = "Force Close"
-                    ) {
-                        viewModel.forceStop(sheetApp.packageName, sheetApp.label)
-                        selectedAppForSheet = null
-                    }
-                }
-
-                SheetAction(
-                    icon = Icons.Rounded.Timer,
-                    label = if (isMindful) "Mindful Pause (5s): ON" else "Mindful Pause (5s): OFF"
-                ) {
-                    prefs.toggleMindfulPause(sheetApp.packageName)
-                    selectedAppForSheet = null
-                }
-
-                // Curbox Daily Limit selector
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Daily Limit:", fontSize = 13.sp, color = TextDim)
-                    listOf(0 to "Off", 15 to "15m", 30 to "30m", 60 to "60m").forEach { (mins, lbl) ->
-                        val active = currentLimit == mins
-                        Surface(
-                            color = if (active) PureWhite else PureBlack,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, if (active) PureWhite else BorderHairline),
-                            modifier = Modifier.clickable {
-                                prefs.setDailyLimit(sheetApp.packageName, mins)
-                            }
-                        ) {
-                            Text(
-                                lbl,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = if (active) PureBlack else PureWhite,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
-                        }
-                    }
-                }
-
-                SheetAction(
-                    icon = Icons.Rounded.Add,
-                    label = "Export APK"
-                ) {
-                    scope.launch {
-                        val msg = exportAppApk(context, sheetApp.packageName, sheetApp.label)
-                        toast(msg)
-                        selectedAppForSheet = null
-                    }
-                }
-
-                SheetAction(
-                    icon = Icons.Rounded.Info,
-                    label = "App Info"
-                ) {
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.parse("package:${sheetApp.packageName}")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                    selectedAppForSheet = null
-                }
-
-                Spacer(Modifier.height(16.dp))
-            }
-        }
     }
 
     if (showCustomizer) {
@@ -962,8 +985,11 @@ fun MonolithLauncher(
         MindfulPauseDialog(
             appLabel = label,
             onContinue = {
+                val pkg = mindfulPkg
                 pendingMindfulPkg = null
-                forceLaunchApp(mindfulPkg)
+                viewModel.startMindfulCooldown(pkg)
+                viewModel.onAppLaunchRequested(pkg)
+                forceLaunchApp(pkg)
             },
             onDismiss = { pendingMindfulPkg = null }
         )
@@ -971,18 +997,64 @@ fun MonolithLauncher(
 
     val apkInfo = pendingApkInstall
     if (apkInfo != null) {
+        val paths = apkInfo.splitPaths.ifEmpty { listOf(apkInfo.path) }
         PackageInstallDialog(
             apkInfo = apkInfo,
             shizukuBound = shizukuStatus.isReady,
+            installState = packageInstallState,
             onInstall = { flags ->
-                scope.launch {
-                    val r = shizuku.installApk(apkInfo.path, flags)
-                    toast(if (r.ok) "Installed ${apkInfo.appLabel}" else r.output.ifBlank { "Install failed" })
-                    pendingApkInstall = null
-                    reloadAll()
+                if (shizukuStatus.isReady) {
+                    PackageInstallService.startInstall(context, paths, apkInfo.appLabel, apkInfo.packageName, flags)
+                } else {
+                    viewModel.installPackage(apkInfo.path, apkInfo.appLabel, apkInfo.packageName, flags)
                 }
             },
-            onDismiss = { pendingApkInstall = null }
+            onUninstallAndInstall = { flags ->
+                if (shizukuStatus.isReady) {
+                    scope.launch {
+                        PackageInstallTracker.update(PackageInstallState.Installing(apkInfo.appLabel, apkInfo.packageName))
+                        withContext(Dispatchers.IO) {
+                            shizuku.uninstallPackage(apkInfo.packageName)
+                        }
+                        PackageInstallService.startInstall(context, paths, apkInfo.appLabel, apkInfo.packageName, flags)
+                    }
+                } else {
+                    viewModel.installPackage(apkInfo.path, apkInfo.appLabel, apkInfo.packageName, flags)
+                }
+            },
+            onRunInBackground = {
+                pendingApkInstall = null
+            },
+            onLaunchApp = { pkg ->
+                pendingApkInstall = null
+                viewModel.dismissPackageInstallState()
+                forceLaunchApp(pkg)
+            },
+            onDismiss = {
+                pendingApkInstall = null
+                if (packageInstallState !is PackageInstallState.Installing) {
+                    viewModel.dismissPackageInstallState()
+                }
+            }
+        )
+    }
+
+    val loadingApk = apkLoadingState
+    if (loadingApk != null) {
+        PackageLoadingDialog(
+            loadingState = loadingApk,
+            onRunInBackground = {
+                val targetUri = currentLoadingUri
+                copyApkJob?.cancel()
+                apkLoadingState = null
+                if (targetUri != null) {
+                    PackageInstallService.startAnalysis(context, targetUri, loadingApk.fileName)
+                }
+            },
+            onCancel = {
+                copyApkJob?.cancel()
+                apkLoadingState = null
+            }
         )
     }
     }

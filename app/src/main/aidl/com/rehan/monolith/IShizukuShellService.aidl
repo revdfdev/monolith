@@ -20,4 +20,5 @@ interface IShizukuShellService {
     OpResult switchUser(int userId) = 15;
     OpResult createUser(String name) = 16;
     OpResult installExisting(String pkg, int userId) = 17;
+    OpResult installMultiple(in ParcelFileDescriptor[] apks, in String[] names, in long[] sizes, in String[] flags) = 18;
 }

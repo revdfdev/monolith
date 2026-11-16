@@ -96,7 +96,12 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingApkIntent(intent: Intent?) {
         val uri = intent?.data
         if (intent?.action in listOf(Intent.ACTION_VIEW, Intent.ACTION_INSTALL_PACKAGE) && uri != null) {
-            incomingApkUri = uri
+            val forwardIntent = Intent(this, PackageInstallActivity::class.java).apply {
+                action = intent.action
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(forwardIntent)
         }
     }
 
@@ -120,5 +125,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         shizuku.refreshAndBind()
         appRepository.refresh()
+        viewModel.onLauncherResumed()
     }
 }

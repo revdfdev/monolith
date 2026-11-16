@@ -165,10 +165,10 @@ internal fun HomeCustomizerSheet(
                 }
             }
 
-            Text("APPS LAYOUT", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = TextDim)
+            Text("PINNED APPS LAYOUT", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = TextDim)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MiniModePill("COVERS", config.pinnedLayout == "COVERS" || config.pinnedLayout == "LIST" || config.pinnedLayout.isEmpty(), { onUpdate(config.copy(pinnedLayout = "COVERS")) }, Modifier.weight(1f))
                 MiniModePill("GRID", config.pinnedLayout == "GRID", { onUpdate(config.copy(pinnedLayout = "GRID")) }, Modifier.weight(1f))
-                MiniModePill("LIST", config.pinnedLayout == "LIST", { onUpdate(config.copy(pinnedLayout = "LIST")) }, Modifier.weight(1f))
             }
 
             Text("CLOCK STYLE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = TextDim)

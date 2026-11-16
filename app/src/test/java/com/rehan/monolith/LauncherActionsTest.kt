@@ -8,6 +8,8 @@ import com.rehan.monolith.shizuku.ShellResult
 import com.rehan.monolith.shizuku.ShizukuOps
 import com.rehan.monolith.shizuku.ShizukuState
 import com.rehan.monolith.ui.home.LauncherViewModel
+import com.rehan.monolith.ui.home.PackageInstallState
+import com.rehan.monolith.ui.install.PackageInstallTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -55,6 +57,8 @@ class FakeShizuku : ShizukuOps {
     override suspend fun trimAllCaches() = rec("trim")
     override suspend fun setDnd(on: Boolean) = rec("dnd $on")
     override suspend fun allowUsageStats() = rec("usage")
+    override suspend fun installApk(apkPath: String, flags: List<String>) = rec("install $apkPath $flags")
+    override suspend fun installSplitApks(apkPaths: List<String>, flags: List<String>) = rec("installSplit $apkPaths $flags")
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -64,24 +68,29 @@ class LauncherActionsTest {
 
     private lateinit var fake: FakeShizuku
     private lateinit var vm: LauncherViewModel
+    private lateinit var prefs: LauncherPrefs
     private val messages = mutableListOf<String>()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         fake = FakeShizuku()
+        PackageInstallTracker.reset()
     }
 
     private fun build(installed: Set<String> = emptySet()): LauncherViewModel {
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
         val repo = AppRepository(CoroutineScope(Dispatchers.Main), Dispatchers.Main, { emptySet() }, { _, _ -> })
-        vm = LauncherViewModel(LauncherPrefs(ctx), repo, fake, InstalledCheck { it in installed })
-        CoroutineScope(UnconfinedTestDispatcher()).launch { vm.messages.collect { messages += it } }
+        val testDispatcher = UnconfinedTestDispatcher()
+        prefs = LauncherPrefs(ctx)
+        vm = LauncherViewModel(prefs, repo, fake, InstalledCheck { it in installed }, testDispatcher)
+        CoroutineScope(testDispatcher).launch { vm.messages.collect { messages += it } }
         return vm
     }
 
     @After
     fun tearDown() {
+        PackageInstallTracker.reset()
         Dispatchers.resetMain()
         stopKoin()
     }
@@ -161,5 +170,83 @@ class LauncherActionsTest {
         fake.result = fail("boom")
         vm.trimCaches()
         assertTrue(messages.last().contains("boom"))
+    }
+
+    @Test
+    fun `GIVEN ready Shizuku WHEN installPackage called THEN runs install and state transitions to Success`() {
+        build()
+        val tempApk = java.io.File.createTempFile("test_apk", ".apk")
+        tempApk.writeText("dummy content")
+
+        vm.installPackage(tempApk.absolutePath, "Test App", "com.test.app", listOf("-r", "-d"))
+
+        assertEquals("install ${tempApk.absolutePath} [-r, -d]", fake.calls.last())
+        assertTrue(vm.packageInstallState.value is PackageInstallState.Success)
+        val success = vm.packageInstallState.value as PackageInstallState.Success
+        assertEquals("Test App", success.appLabel)
+        assertEquals("com.test.app", success.packageName)
+        assertTrue(messages.last().contains("Installed Test App"))
+        assertFalse(tempApk.exists())
+    }
+
+    @Test
+    fun `GIVEN install fails with downgrade error THEN error state has human readable reason`() {
+        build()
+        val tempApk = java.io.File.createTempFile("test_apk", ".apk")
+        fake.result = fail("Failure [INSTALL_FAILED_VERSION_DOWNGRADE]")
+
+        vm.installPackage(tempApk.absolutePath, "Test App", "com.test.app", listOf("-r"))
+
+        assertTrue(vm.packageInstallState.value is PackageInstallState.Error)
+        val err = vm.packageInstallState.value as PackageInstallState.Error
+        assertEquals("Test App", err.appLabel)
+        assertTrue(err.reason.contains("Existing version is newer"))
+    }
+
+    @Test
+    fun `GIVEN Shizuku not connected WHEN installPackage called THEN requests permission without calling install`() {
+        fake.status.value = ShizukuState.NoPermission
+        build()
+
+        vm.installPackage("/tmp/fake.apk", "Test App", "com.test.app", listOf("-r"))
+
+        assertTrue(fake.calls.isEmpty())
+        assertTrue(fake.permissionRequested)
+        assertEquals(PackageInstallState.Idle, vm.packageInstallState.value)
+    }
+
+    @Test
+    fun `GIVEN focus active WHEN Shizuku offline THEN turning focus off succeeds locally`() {
+        build()
+        vm.toggleFocus() // turn on while ready
+        assertTrue(vm.settings.value.focusModeActive)
+
+        // Shizuku goes offline
+        fake.status.value = ShizukuState.NoPermission
+        vm.toggleFocus() // turn off
+        assertFalse(vm.settings.value.focusModeActive)
+        assertFalse(vm.tweaks.value.grayscale)
+    }
+
+    @Test
+    fun `GIVEN mindful app cooldown started WHEN checked within window THEN cooldown is active`() {
+        build()
+        assertFalse(vm.isMindfulCooldownActive("com.distraction.app"))
+        vm.startMindfulCooldown("com.distraction.app", durationMinutes = 15)
+        assertTrue(vm.isMindfulCooldownActive("com.distraction.app"))
+    }
+
+    @Test
+    fun `GIVEN mindful app launched WHEN Shizuku ready THEN temporary monochrome is enabled and restored on resume`() {
+        build()
+        prefs.toggleMindfulPause("com.social.app")
+
+        // Mindful app launch triggers temporary grayscale
+        vm.onAppLaunchRequested("com.social.app")
+        assertEquals(listOf("grayscale true"), fake.calls)
+
+        // Returning to launcher restores color
+        vm.onLauncherResumed()
+        assertEquals(listOf("grayscale true", "grayscale false"), fake.calls)
     }
 }

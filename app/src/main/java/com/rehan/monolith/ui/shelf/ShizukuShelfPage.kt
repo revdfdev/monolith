@@ -18,9 +18,11 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,6 +55,19 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
+import com.rehan.monolith.ui.home.PulleyMenuItem
+import com.rehan.monolith.ui.home.PulleyMenuState
+import com.rehan.monolith.ui.home.PulleyMenuView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,7 +113,8 @@ fun ShizukuShelfPage(
     onUninstallApp: (String) -> Unit,
     onInstallApkUri: (Uri) -> Unit,
     onTrimCaches: () -> Unit,
-    onSetDefaultLauncher: () -> Unit
+    onSetDefaultLauncher: () -> Unit,
+    onClose: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var showPinWizard by remember { mutableStateOf(false) }
@@ -117,124 +133,223 @@ fun ShizukuShelfPage(
     val frozenCount = remember(apps) { apps.count { it.isFrozen } }
     val userApps = remember(apps) { apps.filter { !it.isSystem } }
 
-    Column(
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+
+    val settingsPulleyItems = remember(onClose) {
+        buildList {
+            if (onClose != null) {
+                add(PulleyMenuItem("CLOSE", "CLOSE SETTINGS", onClose))
+            }
+            add(
+                PulleyMenuItem("SYSTEM_SETTINGS", "SYSTEM ANDROID SETTINGS") {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (_: Throwable) {}
+                }
+            )
+            add(
+                PulleyMenuItem("DEFAULT_HOME", "DEFAULT HOME SETTINGS") {
+                    onSetDefaultLauncher()
+                }
+            )
+            add(
+                PulleyMenuItem("REFRESH", "REFRESH STATUS") {
+                    onRefresh()
+                }
+            )
+        }
+    }
+
+    val settingsPulleyState = remember(settingsPulleyItems.size, density) {
+        PulleyMenuState(density = density, itemCount = settingsPulleyItems.size)
+    }
+
+    val settingsSwipe = remember(settingsPulleyState, haptics) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (settingsPulleyState.currentOffsetPx > 0f && available.y < 0f) {
+                    settingsPulleyState.onDragDelta(available.y, haptics)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y > 0f) {
+                    settingsPulleyState.onDragDelta(available.y, haptics)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (settingsPulleyState.currentOffsetPx > 0f) {
+                    settingsPulleyState.release(haptics) { idx ->
+                        settingsPulleyItems[idx].action()
+                    }
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .nestedScroll(settingsSwipe)
     ) {
-        Text("SETTINGS", fontSize = 12.sp, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp, color = TextDim)
-
-        // Modes Card (moved from Home)
-        Surface(
-            color = LocalTileSurface.current,
-        contentColor = PureWhite,
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, LocalTileBorder.current),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("MODES", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextDim)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MiniModePill("KIDS", false, onEnterKidsMode, Modifier.weight(1f))
-                    MiniModePill("FOCUS", focusActive, onToggleFocus, Modifier.weight(1f))
-                    MiniModePill("MONO", grayscaleOn, { onToggleGrayscale(!grayscaleOn) }, Modifier.weight(1f))
-                }
-            }
+        if (settingsPulleyState.currentOffsetPx > 0f) {
+            PulleyMenuView(
+                items = settingsPulleyItems,
+                state = settingsPulleyState,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+            )
         }
 
-        Surface(
-            color = SurfaceBlack,
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, if (status.isReady) PureWhite else BorderHairline),
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = settingsPulleyState.currentOffsetPx
+                }
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    if (status.isReady) "Enhanced Controls: Active" else "Enhanced Controls: Off",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = PureWhite
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("SETTINGS & PREFERENCES", fontSize = 11.sp, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp, color = TextDim)
+                Box(
+                    modifier = Modifier
+                        .width(32.dp)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(BorderHairline)
                 )
-                Text(
-                    if (status.isReady) "App freezing, installer lock & system tweaks ready" else "Grant Shizuku access to unlock app freezing & system tweaks",
-                    fontSize = 11.sp,
-                    color = TextDim
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!status.isReady) {
+            }
+
+            Text("DIGITAL WELLBEING (STANDARD)", fontSize = 10.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp, color = TextDim)
+
+            // Modes Card
+            Surface(
+                color = LocalTileSurface.current,
+                contentColor = PureWhite,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, LocalTileBorder.current),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("ACTIVE MODES", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextDim)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MiniModePill("KIDS", false, onEnterKidsMode, Modifier.weight(1f))
+                        MiniModePill("FOCUS", focusActive, onToggleFocus, Modifier.weight(1f))
+                        MiniModePill("MONO", grayscaleOn, { onToggleGrayscale(!grayscaleOn) }, Modifier.weight(1f))
+                    }
+                }
+            }
+
+            // Kids Space Card
+            Surface(
+                color = LocalTileSurface.current,
+                contentColor = PureWhite,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, LocalTileBorder.current),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("KIDS SPACE ($kidsAppCount APPS)", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextDim)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = onRequestPermission,
-                            colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack)
+                            onClick = {
+                                if (hasParentPin) {
+                                    onEnterKidsMode()
+                                } else {
+                                    enterKidsAfterPin = true
+                                    showPinWizard = true
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text("Enable")
+                            Icon(Icons.Rounded.ChildCare, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Enter Kids")
+                        }
+                        OutlinedButton(
+                            onClick = onConfigureKidsApps,
+                            border = BorderStroke(1.dp, BorderHairline),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Choose Apps", color = PureWhite)
                         }
                     }
-                    OutlinedButton(onClick = onRefresh, border = BorderStroke(1.dp, BorderHairline)) {
-                        Text("Refresh", color = PureWhite)
-                    }
-                    val ctx = LocalContext.current
-                    val isDefaultHome = remember(status) {
-                        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                        val resolved = ctx.packageManager.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
-                        resolved?.activityInfo?.packageName == ctx.packageName
-                    }
-                    OutlinedButton(onClick = onSetDefaultLauncher, border = BorderStroke(1.dp, BorderHairline)) {
-                        Text(if (isDefaultHome) "Default Home ✓" else "Set Default Home", color = if (isDefaultHome) TextDim else PureWhite)
-                    }
-                }
-            }
-        }
-
-        Surface(
-            color = LocalTileSurface.current,
-        contentColor = PureWhite,
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, LocalTileBorder.current),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("KIDS SPACE ($kidsAppCount APPS)", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = TextDim)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            if (hasParentPin) {
-                                onEnterKidsMode()
-                            } else {
-                                enterKidsAfterPin = true
-                                showPinWizard = true
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Rounded.ChildCare, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Enter Kids")
-                    }
+                    HorizontalDivider(color = BorderHairline)
                     OutlinedButton(
-                        onClick = onConfigureKidsApps,
+                        onClick = { showPinWizard = true },
                         border = BorderStroke(1.dp, BorderHairline),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Choose Apps", color = PureWhite)
+                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = PureWhite, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Change Parent PIN (••••)", color = PureWhite)
                     }
                 }
-                HorizontalDivider(color = BorderHairline)
-                OutlinedButton(
-                    onClick = { showPinWizard = true },
-                    border = BorderStroke(1.dp, BorderHairline),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = PureWhite, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Change Parent PIN (••••)", color = PureWhite)
+            }
+
+            Text("ADVANCED (SHIZUKU ONLY)", fontSize = 10.sp, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp, color = TextDim)
+
+            Surface(
+                color = SurfaceBlack,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, if (status.isReady) PureWhite else BorderHairline),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        if (status.isReady) "Enhanced Controls: Active" else "Enhanced Controls: Off",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = PureWhite
+                    )
+                    Text(
+                        if (status.isReady) "App freezing, installer lock & system tweaks ready" else "Grant privileged access to unlock app freezing & system tweaks",
+                        fontSize = 11.sp,
+                        color = TextDim
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!status.isReady) {
+                            Button(
+                                onClick = onRequestPermission,
+                                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = PureBlack)
+                            ) {
+                                Text("Enable")
+                            }
+                        }
+                        OutlinedButton(onClick = onRefresh, border = BorderStroke(1.dp, BorderHairline)) {
+                            Text("Refresh", color = PureWhite)
+                        }
+                        val ctx = LocalContext.current
+                        val isDefaultHome = remember(status) {
+                            val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                            val resolved = ctx.packageManager.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
+                            resolved?.activityInfo?.packageName == ctx.packageName
+                        }
+                        OutlinedButton(onClick = onSetDefaultLauncher, border = BorderStroke(1.dp, BorderHairline)) {
+                            Text(if (isDefaultHome) "Default Home ✓" else "Set Default Home", color = if (isDefaultHome) TextDim else PureWhite)
+                        }
+                    }
                 }
             }
-        }
 
         if (showPinWizard) {
             PinSetupWizardDialog(
@@ -519,4 +634,66 @@ fun ShizukuShelfPage(
             }
         )
     }
+    }
 }
+
+@Composable
+fun SettingsManagerPage(
+    status: ShizukuState,
+    apps: List<AppEntry>,
+    kidsAppCount: Int,
+    hasParentPin: Boolean,
+    grayscaleOn: Boolean,
+    stayAwakeOn: Boolean,
+    installersLocked: Boolean,
+    ambientDisplayOn: Boolean,
+    onToggleAmbientDisplay: (Boolean) -> Unit,
+    lockscreenNotifMode: String,
+    onChangeLockscreenNotifMode: (String) -> Unit,
+    onRequestPermission: () -> Unit,
+    onRefresh: () -> Unit,
+    onEnterKidsMode: () -> Unit,
+    onConfigureKidsApps: () -> Unit,
+    focusActive: Boolean,
+    onToggleFocus: () -> Unit,
+    onSaveParentPin: (String) -> Unit,
+    onSetAnimScale: (Float) -> Unit,
+    onToggleGrayscale: (Boolean) -> Unit,
+    onToggleStayAwake: (Boolean) -> Unit,
+    onToggleInstallersLock: (Boolean) -> Unit,
+    onFreezeToggle: (String, Boolean) -> Unit,
+    onUnfreezeAll: () -> Unit,
+    onUninstallApp: (String) -> Unit,
+    onInstallApkUri: (Uri) -> Unit,
+    onTrimCaches: () -> Unit,
+    onSetDefaultLauncher: () -> Unit
+) = ShizukuShelfPage(
+    status = status,
+    apps = apps,
+    kidsAppCount = kidsAppCount,
+    hasParentPin = hasParentPin,
+    grayscaleOn = grayscaleOn,
+    stayAwakeOn = stayAwakeOn,
+    installersLocked = installersLocked,
+    ambientDisplayOn = ambientDisplayOn,
+    onToggleAmbientDisplay = onToggleAmbientDisplay,
+    lockscreenNotifMode = lockscreenNotifMode,
+    onChangeLockscreenNotifMode = onChangeLockscreenNotifMode,
+    onRequestPermission = onRequestPermission,
+    onRefresh = onRefresh,
+    onEnterKidsMode = onEnterKidsMode,
+    onConfigureKidsApps = onConfigureKidsApps,
+    focusActive = focusActive,
+    onToggleFocus = onToggleFocus,
+    onSaveParentPin = onSaveParentPin,
+    onSetAnimScale = onSetAnimScale,
+    onToggleGrayscale = onToggleGrayscale,
+    onToggleStayAwake = onToggleStayAwake,
+    onToggleInstallersLock = onToggleInstallersLock,
+    onFreezeToggle = onFreezeToggle,
+    onUnfreezeAll = onUnfreezeAll,
+    onUninstallApp = onUninstallApp,
+    onInstallApkUri = onInstallApkUri,
+    onTrimCaches = onTrimCaches,
+    onSetDefaultLauncher = onSetDefaultLauncher
+)

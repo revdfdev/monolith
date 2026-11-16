@@ -24,6 +24,36 @@ class ShizukuShellService : IShizukuShellService.Stub() {
     override fun uninstall(pkg: String) = run { C.uninstall(pkg) }
     override fun install(apk: ParcelFileDescriptor, size: Long, flags: Array<String>) =
         ParcelFileDescriptor.AutoCloseInputStream(apk).use { input -> run(input) { C.install(flags.toList(), size) } }
+    override fun installMultiple(
+        apks: Array<ParcelFileDescriptor>,
+        names: Array<String>,
+        sizes: LongArray,
+        flags: Array<String>
+    ): OpResult {
+        val createResult = run { C.installCreate(flags.toList()) }
+        if (!createResult.ok) return createResult
+        val sessionId = Regex("\\[(\\d+)\\]").find(createResult.message)?.groupValues?.get(1)
+            ?: return result(false, -1, "Failed to parse session ID: ${createResult.message}")
+
+        for (i in apks.indices) {
+            val pfd = apks[i]
+            val name = names[i]
+            val size = sizes[i]
+            val writeResult = ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
+                run(input) { C.installWrite(sessionId, name, size) }
+            }
+            if (!writeResult.ok) {
+                run { C.installAbandon(sessionId) }
+                return writeResult
+            }
+        }
+
+        val commitResult = run { C.installCommit(sessionId) }
+        if (!commitResult.ok) {
+            run { C.installAbandon(sessionId) }
+        }
+        return commitResult
+    }
     override fun listDisabledPackages() = run { C.listDisabledPackages() }
     override fun trimCaches() = run { C.trimCaches() }
     override fun setDnd(mode: String) = run { C.setDnd(mode) }
@@ -42,9 +72,27 @@ class ShizukuShellService : IShizukuShellService.Stub() {
     private fun run(stdin: InputStream? = null, argv: () -> List<String>): OpResult = try {
         val process = ProcessBuilder(argv()).redirectErrorStream(true).start()
         if (stdin != null) process.outputStream.use { stdin.copyTo(it) } else process.outputStream.close()
-        val output = process.inputStream.bufferedReader().use { it.readText() }.trimEnd()
-        val code = process.waitFor()
-        result(code == 0, code, output)
+        val readerThread = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val readFuture = readerThread.submit<String> {
+            process.inputStream.bufferedReader().use { it.readText() }.trimEnd()
+        }
+        val finished = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            readFuture.cancel(true)
+            readerThread.shutdownNow()
+            result(false, -3, "Process timed out after 30 seconds")
+        } else {
+            val output = try {
+                readFuture.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (_: Throwable) {
+                ""
+            } finally {
+                readerThread.shutdown()
+            }
+            val code = process.exitValue()
+            result(code == 0, code, output)
+        }
     } catch (e: IllegalArgumentException) {
         result(false, -2, e.message ?: "Invalid argument")
     } catch (t: Throwable) {

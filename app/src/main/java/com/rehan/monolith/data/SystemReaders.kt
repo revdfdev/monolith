@@ -38,7 +38,13 @@ import java.util.Locale
 
 internal data class SysStats(val batteryPct: Int, val isCharging: Boolean, val freeRamGb: String, val freeStorageGb: String)
 
-internal data class UsageAlarmInfo(val hasUsagePermission: Boolean, val screenTime: String, val nextAlarm: String)
+internal data class UsageAlarmInfo(
+    val hasUsagePermission: Boolean,
+    val screenTime: String,
+    val totalMinutes: Int = 0,
+    val unlockCount: Int = 0,
+    val nextAlarm: String
+)
 
 internal fun readUsageAndAlarm(context: Context): UsageAlarmInfo {
     val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -53,7 +59,13 @@ internal fun readUsageAndAlarm(context: Context): UsageAlarmInfo {
     val mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
     val allowed = mode == AppOpsManager.MODE_ALLOWED
     if (!allowed) {
-        return UsageAlarmInfo(false, "", alarmStr)
+        return UsageAlarmInfo(
+            hasUsagePermission = false,
+            screenTime = "",
+            totalMinutes = 0,
+            unlockCount = 0,
+            nextAlarm = alarmStr
+        )
     }
 
     val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
@@ -71,7 +83,26 @@ internal fun readUsageAndAlarm(context: Context): UsageAlarmInfo {
     val h = totalMins / 60
     val m = totalMins % 60
     val screenTime = if (h > 0) "${h}h ${m}m" else "${m}m"
-    return UsageAlarmInfo(true, screenTime, alarmStr)
+
+    var unlocks = 0
+    try {
+        val events = usm.queryEvents(cal.timeInMillis, System.currentTimeMillis())
+        val ev = android.app.usage.UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(ev)
+            if (ev.eventType == android.app.usage.UsageEvents.Event.KEYGUARD_HIDDEN) {
+                unlocks++
+            }
+        }
+    } catch (_: Throwable) {}
+
+    return UsageAlarmInfo(
+        hasUsagePermission = true,
+        screenTime = screenTime,
+        totalMinutes = totalMins,
+        unlockCount = unlocks,
+        nextAlarm = alarmStr
+    )
 }
 
 internal fun readSystemStats(context: Context): SysStats {
@@ -105,7 +136,23 @@ internal fun drawableToImageBitmap(drawable: Drawable): ImageBitmap? {
     }
 }
 
-internal val appIconCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+internal class BoundedIconCache<T>(private val maxSize: Int = 256) {
+    private val lock = Any()
+    private val map = object : LinkedHashMap<String, T>(maxSize, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, T>?): Boolean {
+            return size > maxSize
+        }
+    }
+
+    operator fun get(key: String): T? = synchronized(lock) { map[key] }
+    operator fun set(key: String, value: T) {
+        synchronized(lock) { map.put(key, value) }
+    }
+    fun clear() = synchronized(lock) { map.clear() }
+    val size: Int get() = synchronized(lock) { map.size }
+}
+
+internal val appIconCache = BoundedIconCache<ImageBitmap>(256)
 
 fun interface InstalledCheck {
     fun isInstalled(pkg: String): Boolean

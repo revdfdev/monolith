@@ -14,7 +14,7 @@ fun buildDrawerSections(apps: List<AppEntry>, showPaused: Boolean): List<DrawerS
         .filter { showPaused || !it.isFrozen }
         .sortedWith(byLabel)
         .groupBy { sectionLetter(it.label) }
-        .toSortedMap(compareBy { if (it == '#') ' ' else it })
+        .toSortedMap(compareBy<Char> { if (it == '#') 1 else 0 }.thenBy { it })
         .map { (letter, list) -> DrawerSection(letter, list) }
 
 /** Prefix match first, then a word inside the label, then any substring, then package name. */
